@@ -225,15 +225,19 @@ const filetypeFromPath = (filePath: string) => {
 
 const createUnifiedDiff = (filePath: string, lines: EditPreviewLine[], additions: number, removals: number) => {
   const firstLineNumber = lines.find((line) => line.lineNumber !== undefined)?.lineNumber ?? 1;
-  const oldLength = Math.max(1, lines.filter((line) => line.marker !== '+').length || removals);
-  const newLength = Math.max(1, lines.filter((line) => line.marker !== '-').length || additions);
+  const oldVisibleLength = lines.filter((line) => line.marker !== '+').length;
+  const newVisibleLength = lines.filter((line) => line.marker !== '-').length;
+  const isAddOnlyHunk = oldVisibleLength === 0 && newVisibleLength > 0 && removals === 0;
+  const oldStart = isAddOnlyHunk ? 0 : firstLineNumber;
+  const oldLength = isAddOnlyHunk ? 0 : Math.max(1, oldVisibleLength || removals);
+  const newLength = Math.max(1, newVisibleLength || additions);
   const body = lines.map((line) => `${line.marker}${line.text}`).join('\n');
 
   return [
     `diff --git a/${filePath} b/${filePath}`,
-    `--- a/${filePath}`,
+    isAddOnlyHunk ? '--- /dev/null' : `--- a/${filePath}`,
     `+++ b/${filePath}`,
-    `@@ -${firstLineNumber},${oldLength} +${firstLineNumber},${newLength} @@`,
+    `@@ -${oldStart},${oldLength} +${firstLineNumber},${newLength} @@`,
     body,
     '',
   ].join('\n');
