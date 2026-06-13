@@ -42,3 +42,4 @@ dist
 *.db-*
 .netlify
 .vercel
+.commandcode
