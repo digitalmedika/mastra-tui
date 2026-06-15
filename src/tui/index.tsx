@@ -1,9 +1,12 @@
-import { SyntaxStyle, TextAttributes, createCliRenderer } from '@opentui/core';
+import { SyntaxStyle, TextAttributes, createCliRenderer, type SelectOption } from '@opentui/core';
 import { createRoot, useKeyboard, useTerminalDimensions } from '@opentui/react';
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { openAICompatibleAgent } from '../mastra/agents/openai-compatible-agent';
+
+// Spinner frames for in-progress animation
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 type StreamTextEvent = {
   id: number;
@@ -134,6 +137,21 @@ const shellBg = '#2374ab';
 const taskBg = '#2c8f5b';
 const runBg = '#6d5dfc';
 const assistantMarkerFg = '#c8a7ff';
+const tuiResourceId = 'tui-user';
+const defaultSessionId = 'tui-session';
+
+type TuiSession = {
+  id: string;
+  title?: string;
+  createdAt?: Date | string;
+  updatedAt?: Date | string;
+  metadata?: Record<string, unknown>;
+};
+
+const defaultSession: TuiSession = {
+  id: defaultSessionId,
+  title: 'Default session',
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -193,6 +211,45 @@ const compactText = (text: string, maxLength = 90) => {
   }
 
   return `${normalized.slice(0, maxLength - 1)}…`;
+};
+
+const formatSessionDate = (value: Date | string | undefined) => {
+  if (!value) {
+    return 'waktu tidak tersedia';
+  }
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'waktu tidak tersedia';
+  }
+
+  return date.toLocaleString();
+};
+
+const getSessionTitle = (session: TuiSession) => {
+  const title = session.title?.trim();
+  if (title) {
+    return title;
+  }
+
+  return session.id === defaultSessionId ? 'Default session' : session.id;
+};
+
+const createNewSessionTitle = () => {
+  return `Session ${new Date().toLocaleString()}`;
+};
+
+const createNewSessionId = () => {
+  return `tui-session-${Date.now().toString(36)}`;
+};
+
+const toSessionOption = (session: TuiSession): SelectOption => {
+  const updatedLabel = formatSessionDate(session.updatedAt ?? session.createdAt);
+  return {
+    name: compactText(getSessionTitle(session), 48),
+    description: compactText(`${session.id} - ${updatedLabel}`, 90),
+    value: session.id,
+  };
 };
 
 const resolveWorkspaceFile = (filePath: string) => {
@@ -678,25 +735,77 @@ function useAgentStream() {
   const [request, setRequest] = useState<StreamRequest | null>(null);
   const nextLineIdRef = useRef(0);
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [currentSession, setCurrentSession] = useState<TuiSession>(defaultSession);
+  const [sessions, setSessions] = useState<TuiSession[]>([defaultSession]);
+  const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
 
-  // Load chat history on mount
+  const refreshSessions = useCallback(async () => {
+    try {
+      const memory = await openAICompatibleAgent.getMemory();
+      if (!memory) {
+        const fallback = [currentSession];
+        setSessions(fallback);
+        return fallback;
+      }
+
+      const result = await memory.listThreads({
+        filter: { resourceId: tuiResourceId },
+        perPage: false,
+        orderBy: { field: 'updatedAt', direction: 'DESC' },
+      });
+      const loadedSessions = (result?.threads ?? []).map((thread) => ({
+        id: thread.id,
+        title: thread.title,
+        createdAt: thread.createdAt,
+        updatedAt: thread.updatedAt,
+        metadata: thread.metadata,
+      }));
+      const hasCurrentSession = loadedSessions.some((session) => session.id === currentSession.id);
+      const nextSessions = hasCurrentSession ? loadedSessions : [currentSession, ...loadedSessions];
+
+      setSessions(nextSessions);
+      return nextSessions;
+    } catch (error) {
+      console.error('[Sessions] Failed to refresh sessions:', error);
+      const fallback = [currentSession];
+      setSessions(fallback);
+      return fallback;
+    }
+  }, [currentSession]);
+
+  // Load chat history when the active session changes.
   useEffect(() => {
+    let cancelled = false;
+
     const loadHistory = async () => {
+      setHistoryLoaded(false);
+      setRequest(null);
+      setTasks([]);
+      setStatus('idle');
+      setEvents([]);
+      nextLineIdRef.current = 0;
+
       try {
-        console.log('[History] Starting to load chat history...');
+        console.log('[History] Starting to load chat history...', currentSession.id);
         const memory = await openAICompatibleAgent.getMemory();
         if (!memory) {
           console.log('[History] No memory instance found');
-          setHistoryLoaded(true);
+          if (!cancelled) {
+            setHistoryLoaded(true);
+          }
           return;
         }
 
         console.log('[History] Fetching messages from memory...');
         const result = await memory.recall({
-          threadId: 'tui-session',
-          resourceId: 'tui-user',
+          threadId: currentSession.id,
+          resourceId: tuiResourceId,
           perPage: false,
         });
+
+        if (cancelled) {
+          return;
+        }
 
         console.log('[History] Recall result:', {
           total: result?.total,
@@ -743,7 +852,7 @@ function useAgentStream() {
           historyEvents.unshift({
             id: lineId++,
             type: 'text',
-            text: '📜 Chat history dimuat dari sesi sebelumnya\n',
+            text: `Chat history dimuat dari ${getSessionTitle(currentSession)}\n`,
           });
           setEvents(historyEvents);
           nextLineIdRef.current = lineId;
@@ -759,7 +868,11 @@ function useAgentStream() {
     };
 
     void loadHistory();
-  }, []);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentSession]);
 
   useEffect(() => {
     if (!historyLoaded) {
@@ -1223,8 +1336,8 @@ function useAgentStream() {
         const response = await openAICompatibleAgent.stream(request.prompt, {
           maxSteps: agentMaxSteps,
           memory: {
-            resource: 'tui-user',
-            thread: 'tui-session',
+            resource: tuiResourceId,
+            thread: currentSession.id,
           },
         });
         updateRunEvent(runEventId, 'streaming');
@@ -1446,12 +1559,14 @@ function useAgentStream() {
         activeExploreEventId = null;
         updateRunEvent(runEventId, 'done');
         setStatus('finished');
+        void refreshSessions();
       } catch (error) {
         if (cancelled) return;
         updateRunEvent(runEventId, 'error');
         const message = error instanceof Error ? error.message : String(error);
         appendLine(`error: ${message}`);
         setStatus('error');
+        void refreshSessions();
       }
     };
 
@@ -1461,7 +1576,7 @@ function useAgentStream() {
       cancelled = true;
       clearInterval(spinnerInterval);
     };
-  }, [request]);
+  }, [currentSession.id, historyLoaded, refreshSessions, request]);
 
   const submitPrompt = useCallback(
     (nextPrompt: string) => {
@@ -1485,7 +1600,7 @@ function useAgentStream() {
     try {
       const memory = await openAICompatibleAgent.getMemory();
       if (memory) {
-        await memory.deleteThread('tui-session');
+        await memory.deleteThread(currentSession.id);
       }
     } catch {
       // silently ignore — memory may not be initialized
@@ -1496,9 +1611,92 @@ function useAgentStream() {
     setStatus('idle');
     setRequest(null);
     nextLineIdRef.current = 0;
+    void refreshSessions();
+  }, [currentSession.id, refreshSessions]);
+
+  const createSession = useCallback(
+    async (title?: string) => {
+      if (status === 'streaming') {
+        return false;
+      }
+
+      try {
+        const memory = await openAICompatibleAgent.getMemory();
+        if (!memory) {
+          return false;
+        }
+
+        const nextTitle = title?.trim() || createNewSessionTitle();
+        const thread = await memory.createThread({
+          resourceId: tuiResourceId,
+          threadId: createNewSessionId(),
+          title: nextTitle,
+          metadata: {
+            source: 'mastra-tui',
+          },
+        });
+        const nextSession: TuiSession = {
+          id: thread.id,
+          title: thread.title,
+          createdAt: thread.createdAt,
+          updatedAt: thread.updatedAt,
+          metadata: thread.metadata,
+        };
+
+        setSessionPickerOpen(false);
+        setSessions((current) => [nextSession, ...current.filter((session) => session.id !== nextSession.id)]);
+        setCurrentSession(nextSession);
+        return true;
+      } catch (error) {
+        console.error('[Sessions] Failed to create session:', error);
+        return false;
+      }
+    },
+    [status],
+  );
+
+  const openSessionPicker = useCallback(async () => {
+    if (status === 'streaming') {
+      return false;
+    }
+
+    await refreshSessions();
+    setSessionPickerOpen(true);
+    return true;
+  }, [refreshSessions, status]);
+
+  const closeSessionPicker = useCallback(() => {
+    setSessionPickerOpen(false);
   }, []);
 
-  return { events, tasks, status, submitPrompt, clearMemory };
+  const selectSession = useCallback(
+    async (sessionId: string) => {
+      if (status === 'streaming') {
+        return false;
+      }
+
+      const session = sessions.find((item) => item.id === sessionId) ?? { id: sessionId };
+      setSessionPickerOpen(false);
+      setCurrentSession(session);
+      return true;
+    },
+    [sessions, status],
+  );
+
+  return {
+    events,
+    tasks,
+    status,
+    currentSession,
+    sessions,
+    sessionPickerOpen,
+    submitPrompt,
+    clearMemory,
+    createSession,
+    openSessionPicker,
+    closeSessionPicker,
+    selectSession,
+  };
 }
 
 function plural(value: number, singular: string, pluralText: string) {
@@ -1526,6 +1724,20 @@ function TaskListPanel({
   const completedTasks = tasks.filter((task) => task.done).length;
   const panelWidth = sidePanel ? Math.min(56, Math.max(42, Math.floor(terminalWidth * 0.3))) : terminalWidth;
   const taskTextMaxLength = sidePanel ? Math.max(20, panelWidth - 14) : Math.max(48, terminalWidth - 8);
+  
+  // Animation state for spinner
+  const [spinnerFrame, setSpinnerFrame] = useState(0);
+  
+  useEffect(() => {
+    const hasInProgressTask = tasks.some((task) => task.current);
+    if (!hasInProgressTask) return;
+    
+    const interval = setInterval(() => {
+      setSpinnerFrame((prev) => (prev + 1) % SPINNER_FRAMES.length);
+    }, 80);
+    
+    return () => clearInterval(interval);
+  }, [tasks]);
 
   return (
     <box
@@ -1544,16 +1756,17 @@ function TaskListPanel({
         <text content={`  ${completedTasks}/${tasks.length}`} style={{ fg: mutedFg }} />
       </box>
       {tasks.map((task) => {
-        const suffix = task.current ? ' (sedang dikerjakan)' : '';
-        const availableTextLength = Math.max(16, taskTextMaxLength - suffix.length);
-        const content = `${task.done ? '[x]' : '[ ]'} ${task.index}. ${compactText(task.text, availableTextLength)}${suffix}`;
+        const spinner = task.current ? ` ${SPINNER_FRAMES[spinnerFrame]}` : '';
+        const availableTextLength = Math.max(16, taskTextMaxLength - spinner.length);
+        const checkbox = task.done ? '[x]' : task.current ? '[-]' : '[ ]';
+        const content = `${checkbox} ${task.index}. ${compactText(task.text, availableTextLength)}${spinner}`;
 
         return (
           <text
             key={task.index}
             content={content}
             style={{
-              fg: task.done ? mutedFg : textFg,
+              fg: task.done ? mutedFg : task.current ? greenFg : textFg,
               attributes: task.current ? TextAttributes.BOLD : undefined,
             }}
           />
@@ -1784,12 +1997,42 @@ function StreamView({ events, status }: { events: StreamEvent[]; status: StreamS
 }
 
 function App({ onExit }: { onExit: () => void }) {
-  const { events, tasks, status, submitPrompt, clearMemory } = useAgentStream();
+  const {
+    events,
+    tasks,
+    status,
+    currentSession,
+    sessions,
+    sessionPickerOpen,
+    submitPrompt,
+    clearMemory,
+    createSession,
+    openSessionPicker,
+    closeSessionPicker,
+    selectSession,
+  } = useAgentStream();
   const [inputValue, setInputValue] = useState('');
   const { width: terminalWidth } = useTerminalDimensions();
   const hasTasks = tasks.length > 0;
   const showSideTasks = hasTasks && terminalWidth >= 132;
   const allTasksDone = hasTasks && tasks.every((task) => task.done);
+  const sessionOptions = sessions.map(toSessionOption);
+  const selectedSessionIndex = Math.max(
+    0,
+    sessions.findIndex((session) => session.id === currentSession.id),
+  );
+  const sessionSelectHeight = Math.min(14, Math.max(3, sessionOptions.length * 2));
+  const sessionLabel = compactText(getSessionTitle(currentSession), 36);
+  const visibleFooterState =
+    status === 'idle'
+      ? { label: 'READY', bg: runBg, text: `session ${sessionLabel} - enter kirim - /new - /sessions - /clear` }
+      : status === 'streaming'
+        ? { label: 'STREAM', bg: shellBg, text: `session ${sessionLabel} - scroll panah/page - esc keluar` }
+        : status === 'error'
+          ? { label: 'ERROR', bg: redBg, text: `session ${sessionLabel} - enter kirim - /new - /sessions - /clear` }
+          : allTasksDone
+            ? { label: 'DONE', bg: taskBg, text: `session ${sessionLabel} - task selesai - enter kirim` }
+            : { label: 'PAUSED', bg: redBg, text: `session ${sessionLabel} - task belum selesai - enter lanjut` };
   const footerState =
     status === 'idle'
       ? { label: 'READY', bg: runBg, text: 'enter kirim · esc keluar · /clear bersihkan' }
@@ -1803,6 +2046,11 @@ function App({ onExit }: { onExit: () => void }) {
 
   useKeyboard((key) => {
     if (key.name === 'escape') {
+      if (sessionPickerOpen) {
+        closeSessionPicker();
+        return;
+      }
+
       onExit();
     }
   });
@@ -1820,6 +2068,21 @@ function App({ onExit }: { onExit: () => void }) {
       return;
     }
 
+    if (trimmedValue === '/sessions' && status !== 'streaming') {
+      setInputValue('');
+      void openSessionPicker();
+      return;
+    }
+
+    if (trimmedValue === '/new' || trimmedValue.startsWith('/new ')) {
+      if (status !== 'streaming') {
+        const title = trimmedValue.slice('/new'.length).trim();
+        setInputValue('');
+        void createSession(title || undefined);
+      }
+      return;
+    }
+
     if (submitPrompt(value)) {
       setInputValue('');
     }
@@ -1827,12 +2090,44 @@ function App({ onExit }: { onExit: () => void }) {
 
   return (
     <box style={{ width: '100%', height: '100%', flexDirection: 'column' }}>
+      {sessionPickerOpen ? (
+        <box
+          style={{
+            width: '100%',
+            flexDirection: 'column',
+            border: true,
+            paddingLeft: 1,
+            paddingRight: 1,
+            flexShrink: 0,
+          }}
+        >
+          <box style={{ width: '100%', flexDirection: 'row' }}>
+            <Badge label="SESSIONS" bg={runBg} />
+            <text content="  pilih session lalu enter" style={{ fg: mutedFg }} />
+          </box>
+          <select
+            focused
+            options={sessionOptions}
+            selectedIndex={selectedSessionIndex}
+            showScrollIndicator
+            wrapSelection
+            style={{ width: '100%', height: sessionSelectHeight }}
+            onSelect={(_index, option) => {
+              const sessionId = typeof option?.value === 'string' ? option.value : undefined;
+              if (sessionId) {
+                void selectSession(sessionId);
+              }
+            }}
+          />
+          <text content="enter pilih - esc batal - /new dari input untuk session baru" style={{ fg: mutedFg }} />
+        </box>
+      ) : null}
       {hasTasks && !showSideTasks ? (
         <TaskListPanel tasks={tasks} sidePanel={false} terminalWidth={terminalWidth} />
       ) : null}
       <box style={{ width: '100%', flexGrow: 1, flexShrink: 1, flexBasis: 0, flexDirection: 'row' }}>
         <scrollbox
-          focused
+          focused={!sessionPickerOpen}
           stickyScroll
           stickyStart="bottom"
           scrollY
@@ -1845,14 +2140,14 @@ function App({ onExit }: { onExit: () => void }) {
         ) : null}
       </box>
       <box style={{ width: '100%', flexDirection: 'row', flexShrink: 0 }}>
-        <Badge label={footerState.label} bg={footerState.bg} />
+        <Badge label={visibleFooterState.label} bg={visibleFooterState.bg} />
         <text content="  " />
-        <text content={footerState.text} style={{ fg: mutedFg }} />
+        <text content={visibleFooterState.text} style={{ fg: mutedFg }} />
       </box>
       <box style={{ width: '100%', flexDirection: 'row', flexShrink: 0 }}>
         <text content="> " style={{ fg: assistantMarkerFg }} />
         <input
-          focused
+          focused={!sessionPickerOpen}
           value={inputValue}
           placeholder={status === 'streaming' ? 'tunggu streaming selesai...' : 'ketik instruksi lalu enter'}
           onInput={setInputValue}
