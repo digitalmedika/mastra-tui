@@ -7,7 +7,8 @@ import { ExploreEventView } from './ExploreEventView';
 import { ShellEventView } from './ShellEventView';
 import { TaskListEventView } from './TaskListEventView';
 import { EditEventView } from './EditEventView';
-import { markdownSyntaxStyle } from '../constants';
+import { ProgressEventView } from './ProgressEventView';
+import { markdownSyntaxStyle, treeSitterClient } from '../constants';
 
 export function StreamView({ events, status }: { events: StreamEvent[]; status: StreamStatus }) {
   return (
@@ -18,6 +19,7 @@ export function StreamView({ events, status }: { events: StreamEvent[]; status: 
             key={block.id}
             content={block.content}
             syntaxStyle={markdownSyntaxStyle}
+            treeSitterClient={treeSitterClient}
             streaming={status === 'streaming'}
             tableOptions={{
               style: 'grid',
@@ -33,6 +35,8 @@ export function StreamView({ events, status }: { events: StreamEvent[]; status: 
           <AssistantMessageView key={block.id} content={block.content} streaming={status === 'streaming'} />
         ) : block.type === 'run' ? (
           <RunEventView key={block.id} event={block} />
+        ) : block.type === 'progress' ? (
+          <ProgressEventView key={block.id} event={block} />
         ) : block.type === 'read' ? (
           <ReadEventView key={block.id} event={block} />
         ) : block.type === 'explore' ? (

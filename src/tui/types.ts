@@ -84,9 +84,16 @@ export type TaskListEvent = {
   status: 'running' | 'done' | 'error';
 };
 
+export type ProgressEvent = {
+  id: number;
+  type: 'progress';
+  label: string;
+  description: string;
+};
+
 export type ToolCardEvent = EditEvent | ReadEvent | ExploreEvent | ShellEvent | TaskListEvent;
 
-export type StreamEvent = StreamTextEvent | StreamAssistantEvent | RunEvent | ToolCardEvent;
+export type StreamEvent = StreamTextEvent | StreamAssistantEvent | RunEvent | ToolCardEvent | ProgressEvent;
 
 export type StreamStatus = 'idle' | 'streaming' | 'finished' | 'error';
 

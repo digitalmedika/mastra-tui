@@ -3,6 +3,7 @@ export { StreamingIndicator } from './StreamingIndicator';
 export { TaskListPanel } from './TaskListPanel';
 export { AssistantMessageView } from './AssistantMessageView';
 export { RunEventView } from './RunEventView';
+export { ProgressEventView } from './ProgressEventView';
 export { ReadEventView } from './ReadEventView';
 export { ShellEventView } from './ShellEventView';
 export { TaskListEventView } from './TaskListEventView';

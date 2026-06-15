@@ -1,9 +1,27 @@
-import { SyntaxStyle, TextAttributes } from '@opentui/core';
+import { SyntaxStyle, TextAttributes, getTreeSitterClient } from '@opentui/core';
 import type { TuiSession } from './types';
 
 export const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
-export const markdownSyntaxStyle = SyntaxStyle.create();
+// Initialize tree-sitter client for syntax highlighting
+export const treeSitterClient = getTreeSitterClient();
+
+// Create syntax style with VS Code Dark+ theme colors
+export const markdownSyntaxStyle = SyntaxStyle.fromTheme([
+  { scope: ['comment'], style: { foreground: '#6A9955' } },
+  { scope: ['string'], style: { foreground: '#CE9178' } },
+  { scope: ['keyword'], style: { foreground: '#569CD6' } },
+  { scope: ['function'], style: { foreground: '#DCDCAA' } },
+  { scope: ['variable'], style: { foreground: '#9CDCFE' } },
+  { scope: ['type'], style: { foreground: '#4EC9B0' } },
+  { scope: ['number'], style: { foreground: '#B5CEA8' } },
+  { scope: ['operator'], style: { foreground: '#D4D4D4' } },
+  { scope: ['punctuation'], style: { foreground: '#D4D4D4' } },
+  { scope: ['constant'], style: { foreground: '#4FC1FF' } },
+  { scope: ['property'], style: { foreground: '#9CDCFE' } },
+  { scope: ['tag'], style: { foreground: '#569CD6' } },
+  { scope: ['attribute'], style: { foreground: '#9CDCFE' } },
+]);
 
 export const workspacePath = process.env.VIBE_CODING_WORKSPACE_PATH ?? '/Users/billymontolalu/Documents/project/central';
 export const configuredMaxSteps = Number(process.env.VIBE_CODING_MAX_STEPS);

@@ -1,4 +1,4 @@
-import { assistantMarkerFg, markdownSyntaxStyle } from '../constants';
+import { assistantMarkerFg, markdownSyntaxStyle, treeSitterClient } from '../constants';
 
 export function AssistantMessageView({ content, streaming }: { content: string; streaming: boolean }) {
   if (!content.trim()) {
@@ -12,6 +12,7 @@ export function AssistantMessageView({ content, streaming }: { content: string; 
         <markdown
           content={content.trim()}
           syntaxStyle={markdownSyntaxStyle}
+          treeSitterClient={treeSitterClient}
           streaming={streaming}
           tableOptions={{
             style: 'grid',

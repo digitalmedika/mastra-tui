@@ -200,6 +200,24 @@ export function useAgentStream() {
 
     // ----- inlined helpers that close over mutable refs -----
 
+    const getToolLabel = (toolName: string | undefined): string => {
+      switch (toolName) {
+        case 'tui_task_list':
+        case 'tuiTaskListTool': return 'TASK';
+        case 'mastra_workspace_read_file': return 'READ';
+        case 'mastra_workspace_write_file': return 'WRITE';
+        case 'mastra_workspace_edit_file': return 'EDIT';
+        case 'mastra_workspace_list_files': return 'LIST';
+        case 'mastra_workspace_delete': return 'DELETE';
+        case 'mastra_workspace_file_stat': return 'STAT';
+        case 'mastra_workspace_mkdir': return 'MKDIR';
+        case 'mastra_workspace_grep': return 'GREP';
+        case 'mastra_workspace_shell':
+        case 'mastra_workspace_execute_command': return 'SHELL';
+        default: return 'TOOL';
+      }
+    };
+
     const describeTool = (payload: ToolPayload) => {
       const toolName = payload.toolName ?? 'unknown';
       const args = payload.args;
@@ -356,18 +374,25 @@ export function useAgentStream() {
       );
     };
 
-    const progressText = (description: string) => `${spinnerFrames[spinnerFrameIndex]} ${description}`;
-
-    const startProgressLine = (description: string) => {
+    const appendProgressEvent = (label: string, description: string) => {
       activeResponseLineId = null;
-      const lineId = appendLine(progressText(description));
-      activeToolLines.set(lineId, description);
+      const lineId = nextLineIdRef.current;
+      nextLineIdRef.current += 1;
+      setEvents((current) => [...current, { id: lineId, type: 'progress', label, description }]);
+      activeToolLines.set(lineId, label);
       return lineId;
     };
 
-    const updateProgressLine = (lineId: number, description: string) => {
-      activeToolLines.set(lineId, description);
-      updateLine(lineId, progressText(description));
+    const updateProgressEvent = (lineId: number, label: string, description: string) => {
+      activeToolLines.set(lineId, label);
+      setEvents((current) =>
+        current.map((event) => (event.id === lineId && event.type === 'progress' ? { ...event, label, description } : event)),
+      );
+    };
+
+    const removeProgressEvent = (lineId: number) => {
+      activeToolLines.delete(lineId);
+      setEvents((current) => current.filter((event) => event.id !== lineId));
     };
 
     const finishProgressLine = (lineId: number, marker: '[x]' | '[!]', description: string) => {
@@ -393,9 +418,7 @@ export function useAgentStream() {
           if (event.type === 'shell' && event.status === 'running' && hasActiveTools) {
             return { ...event, elapsedSeconds: Math.max(0, Math.round((Date.now() - event.startedAt) / 1000)) };
           }
-          if (event.type !== 'text') return event;
-          const description = activeToolLines.get(event.id);
-          return description ? { ...event, text: progressText(description) } : event;
+          return event;
         }),
       );
     }, 250);
@@ -490,15 +513,16 @@ export function useAgentStream() {
 
           if (chunk.type === 'tool-call') {
             applyTaskListTool(chunk.payload);
+            const label = getToolLabel(chunk.payload.toolName);
             const description = describeTool(chunk.payload);
             let lineId =
               (chunk.payload.toolCallId ? activeToolLineByCallId.get(chunk.payload.toolCallId) : undefined) ??
               (chunk.payload.toolName ? pendingToolLineByName.get(chunk.payload.toolName) : undefined);
 
             if (lineId === undefined) {
-              lineId = startProgressLine(description);
+              lineId = appendProgressEvent(label, description);
             } else {
-              updateProgressLine(lineId, description);
+              updateProgressEvent(lineId, label, description);
             }
 
             if (chunk.payload.toolCallId) {
@@ -527,8 +551,8 @@ export function useAgentStream() {
           }
 
           if (chunk.type === 'tool-call-input-streaming-start') {
-            const description = 'memproses';
-            const lineId = startProgressLine(description);
+            const label = getToolLabel(chunk.payload.toolName);
+            const lineId = appendProgressEvent(label, '');
             if (chunk.payload.toolName) pendingToolLineByName.set(chunk.payload.toolName, lineId);
           }
 
@@ -562,7 +586,7 @@ export function useAgentStream() {
             } else if (readEvent && activeExploreEventId !== null) {
               const child = createExploreChildEvent(readEvent.id, chunk.payload, fallbackPayload);
               if (child) addExploreChild(activeExploreEventId, child);
-              if (lineId !== undefined) { removeEvent(lineId); activeToolLineByCallId.delete(chunk.payload.toolCallId ?? ''); }
+              if (lineId !== undefined) { removeProgressEvent(lineId); activeToolLineByCallId.delete(chunk.payload.toolCallId ?? ''); }
             } else if (readEvent && lineId !== undefined) {
               replaceLineWithToolEvent(lineId, readEvent);
               activeToolLineByCallId.delete(chunk.payload.toolCallId ?? '');
@@ -592,11 +616,9 @@ export function useAgentStream() {
             } else if (activeExploreEventId !== null && isExploreTool(toolName)) {
               const child = createExploreChildEvent(lineId ?? nextLineIdRef.current, chunk.payload, fallbackPayload);
               if (child) addExploreChild(activeExploreEventId, child);
-              if (lineId !== undefined) { removeEvent(lineId); activeToolLineByCallId.delete(chunk.payload.toolCallId ?? ''); }
-            } else if (lineId === undefined) {
-              appendLogLine(`[x] ${description}`);
-            } else {
-              finishProgressLine(lineId, '[x]', description);
+              if (lineId !== undefined) { removeProgressEvent(lineId); activeToolLineByCallId.delete(chunk.payload.toolCallId ?? ''); }
+            } else if (lineId !== undefined) {
+              removeProgressEvent(lineId);
               activeToolLineByCallId.delete(chunk.payload.toolCallId ?? '');
             }
           }
@@ -628,11 +650,12 @@ export function useAgentStream() {
             } else if (taskListEvent) {
               nextLineIdRef.current += 1;
               appendToolEvent(taskListEvent);
-            } else if (lineId === undefined) {
+            } else if (lineId !== undefined) {
+              removeProgressEvent(lineId);
+              activeToolLineByCallId.delete(chunk.payload.toolCallId ?? '');
               appendLogLine(`[!] ${description}`);
             } else {
-              finishProgressLine(lineId, '[!]', description);
-              activeToolLineByCallId.delete(chunk.payload.toolCallId ?? '');
+              appendLogLine(`[!] ${description}`);
             }
           }
         }

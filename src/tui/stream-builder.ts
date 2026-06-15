@@ -1,8 +1,8 @@
-import type { RunEvent, StreamEvent, ToolCardEvent } from './types';
+import type { RunEvent, StreamEvent, ToolCardEvent, ProgressEvent } from './types';
 
 type TextBlock = { id: number; type: 'text'; content: string };
 type AssistantBlock = { id: number; type: 'assistant'; content: string };
-export type StreamBlock = TextBlock | AssistantBlock | RunEvent | ToolCardEvent;
+export type StreamBlock = TextBlock | AssistantBlock | RunEvent | ToolCardEvent | ProgressEvent;
 
 export const buildStreamBlocks = (events: StreamEvent[]) => {
   const blocks: StreamBlock[] = [];
@@ -39,6 +39,13 @@ export const buildStreamBlocks = (events: StreamEvent[]) => {
         assistantBlock = { id: event.id, lines: [] };
       }
       assistantBlock.lines.push(event.text);
+      continue;
+    }
+
+    if (event.type === 'progress') {
+      flushTextBlock();
+      flushAssistantBlock();
+      blocks.push(event);
       continue;
     }
 

@@ -1,7 +1,7 @@
 import { TextAttributes } from '@opentui/core';
 import { Badge } from './Badge';
 import type { EditEvent } from '../types';
-import { greenBg, greenFg, mutedFg, pathFg, redBg, redFg, textFg } from '../constants';
+import { greenBg, greenFg, mutedFg, pathFg, redBg, redFg, textFg, treeSitterClient } from '../constants';
 import { plural } from '../utils';
 
 export function EditEventView({ event }: { event: EditEvent }) {
@@ -26,6 +26,7 @@ export function EditEventView({ event }: { event: EditEvent }) {
           diff={event.diff}
           view="unified"
           filetype={event.filetype}
+          treeSitterClient={treeSitterClient}
           showLineNumbers
           wrapMode="none"
           height={event.diffHeight}
