@@ -26,6 +26,7 @@ export type TokenUsage = {
   cacheReadTokens?: number;
   cacheWriteTokens?: number;
   cachedInputTokens?: number;
+  estimated?: boolean;
 };
 
 export type TokenUsageEvent = {

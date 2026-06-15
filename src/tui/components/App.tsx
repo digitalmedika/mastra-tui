@@ -5,8 +5,10 @@ import { fetchSessionMe } from '../auth/device';
 import { useAgentStream } from '../hooks';
 import { assistantMarkerFg, inputBorderFg, mutedFg, runBg, textFg } from '../constants';
 import { toSessionOption } from '../utils';
+import { refreshAgent } from '../../mastra/agents/openai-compatible-agent';
 import { Badge } from './Badge';
 import { DeviceLogin } from './DeviceLogin';
+import { StreamingIndicator } from './StreamingIndicator';
 import { TaskListPanel } from './TaskListPanel';
 import { StreamView } from './StreamView';
 
@@ -24,6 +26,13 @@ export function App({ onExit }: { onExit: () => void }) {
     openSessionPicker,
     closeSessionPicker,
     selectSession,
+    models,
+    selectedModelId,
+    modelPickerOpen,
+    modelsLoaded,
+    openModelPicker,
+    closeModelPicker,
+    selectModel,
   } = useAgentStream();
   const [inputValue, setInputValue] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
@@ -36,6 +45,19 @@ export function App({ onExit }: { onExit: () => void }) {
     sessions.findIndex((session) => session.id === currentSession.id),
   );
   const sessionSelectHeight = Math.min(14, Math.max(3, sessionOptions.length * 2));
+  const modelOptions = models.map((m) => ({
+    name: m.name,
+    description: `${m.providerName} - ${m.publicModelId}`,
+    value: m.publicModelId,
+  }));
+  const selectedModelIndex = Math.max(
+    0,
+    models.findIndex((m) => m.publicModelId === selectedModelId),
+  );
+  const modelSelectHeight = Math.min(14, Math.max(3, modelOptions.length * 2));
+  const anyPickerOpen = sessionPickerOpen || modelPickerOpen;
+  const activeModel = models.find((m) => m.publicModelId === selectedModelId);
+  const modelDisplayName = activeModel ? activeModel.name : selectedModelId;
 
   useEffect(() => {
     const session = getStoredSession();
@@ -44,7 +66,10 @@ export function App({ onExit }: { onExit: () => void }) {
       return;
     }
     fetchSessionMe(session.token)
-      .then(() => setIsAuthenticated(true))
+      .then(() => {
+        refreshAgent();
+        setIsAuthenticated(true);
+      })
       .catch((error) => {
         console.error('[Auth] Failed to verify session:', error);
         clearSession();
@@ -54,6 +79,10 @@ export function App({ onExit }: { onExit: () => void }) {
 
   useKeyboard((key) => {
     if (key.name === 'escape') {
+      if (modelPickerOpen) {
+        closeModelPicker();
+        return;
+      }
       if (sessionPickerOpen) {
         closeSessionPicker();
         return;
@@ -79,12 +108,25 @@ export function App({ onExit }: { onExit: () => void }) {
       return;
     }
 
+    if (trimmedValue === '/model' && status !== 'streaming') {
+      setInputValue('');
+      void openModelPicker();
+      return;
+    }
+
     if (trimmedValue === '/new' || trimmedValue.startsWith('/new ')) {
       if (status !== 'streaming') {
         const title = trimmedValue.slice('/new'.length).trim();
         setInputValue('');
         void createSession(title || undefined);
       }
+      return;
+    }
+
+    if (trimmedValue === '/logout') {
+      setInputValue('');
+      clearSession();
+      setIsAuthenticated(false);
       return;
     }
 
@@ -103,7 +145,10 @@ export function App({ onExit }: { onExit: () => void }) {
   }
 
   if (!isAuthenticated) {
-    return <DeviceLogin onLogin={() => setIsAuthenticated(true)} />;
+    return <DeviceLogin onLogin={() => {
+      refreshAgent();
+      setIsAuthenticated(true);
+    }} />;
   }
 
   return (
@@ -140,12 +185,51 @@ export function App({ onExit }: { onExit: () => void }) {
           <text content="enter select - esc cancel - /new from input to create a session" style={{ fg: mutedFg }} />
         </box>
       ) : null}
+      {modelPickerOpen ? (
+        <box
+          style={{
+            width: '100%',
+            flexDirection: 'column',
+            border: true,
+            paddingLeft: 1,
+            paddingRight: 1,
+            flexShrink: 0,
+          }}
+        >
+          <box style={{ width: '100%', flexDirection: 'row' }}>
+            <Badge label="MODELS" bg={runBg} />
+            <text content={`  choose a model (current: ${selectedModelId}), then press enter`} style={{ fg: mutedFg }} />
+          </box>
+          {modelsLoaded && modelOptions.length === 0 ? (
+            <box style={{ width: '100%', flexDirection: 'column', paddingTop: 1, paddingBottom: 1 }}>
+              <text content="  No models available from the catalog." style={{ fg: mutedFg }} />
+              <text content="  Falling back to default model." style={{ fg: mutedFg }} />
+            </box>
+          ) : (
+            <select
+              focused
+              options={modelOptions}
+              selectedIndex={selectedModelIndex}
+              showScrollIndicator
+              wrapSelection
+              style={{ width: '100%', height: modelSelectHeight }}
+              onSelect={(_index, option) => {
+                const modelId = typeof option?.value === 'string' ? option.value : undefined;
+                if (modelId) {
+                  void selectModel(modelId);
+                }
+              }}
+            />
+          )}
+          <text content="enter select - esc cancel" style={{ fg: mutedFg }} />
+        </box>
+      ) : null}
       {hasTasks && !showSideTasks ? (
         <TaskListPanel tasks={tasks} sidePanel={false} terminalWidth={terminalWidth} />
       ) : null}
       <box style={{ width: '100%', flexGrow: 1, flexShrink: 1, flexBasis: 0, flexDirection: 'row' }}>
         <scrollbox
-          focused={!sessionPickerOpen}
+          focused={!anyPickerOpen}
           stickyScroll
           stickyStart="bottom"
           scrollY
@@ -173,7 +257,7 @@ export function App({ onExit }: { onExit: () => void }) {
       >
         <text content="> " style={{ fg: assistantMarkerFg, width: 2, flexShrink: 0 }} />
         <input
-          focused={!sessionPickerOpen}
+          focused={!anyPickerOpen}
           value={inputValue}
           placeholder={status === 'streaming' ? 'Wait for streaming to finish...' : 'Ask your question...'}
           onInput={setInputValue}
@@ -187,6 +271,22 @@ export function App({ onExit }: { onExit: () => void }) {
             placeholderColor: mutedFg,
             cursorColor: assistantMarkerFg,
           }}
+        />
+        {status === 'streaming' ? <StreamingIndicator /> : null}
+      </box>
+      <box
+        style={{
+          width: '100%',
+          height: 1,
+          flexDirection: 'row',
+          flexShrink: 0,
+          paddingLeft: 1,
+          paddingRight: 1,
+        }}
+      >
+        <text
+          content={`model: ${modelDisplayName}`}
+          style={{ fg: mutedFg }}
         />
       </box>
     </box>

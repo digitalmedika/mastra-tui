@@ -34,12 +34,12 @@ export function ExploreEventView({ event }: { event: ExploreEvent }) {
         <Badge label={event.label} bg={exploreBg} />
       </box>
       <text>
-        <span fg={branchFg}>{'└ '}</span>
+        <span fg={branchFg}>{'- '}</span>
         <span fg={event.status === 'error' ? redFg : mutedFg}>{statusText}</span>
       </text>
       {event.children.map((child) => (
         <text key={`${event.id}-${child.id}-${child.label}-${child.path}`}>
-          <span fg={branchFg}>{'└ '}</span>
+          <span fg={branchFg}>{'- '}</span>
           <span fg={branchFg}>{child.label}</span>
           <span fg={branchFg}>{` (${child.path})`}</span>
         </text>

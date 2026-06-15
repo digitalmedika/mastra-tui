@@ -2,7 +2,7 @@
 
 ## CRITICAL: Load `mastra` skill first
 
-Load the `mastra` skill BEFORE any Mastra work. Never rely on cached knowledge — APIs change between versions.
+Load the `mastra` skill BEFORE any Mastra work. Never rely on cached knowledge - APIs change between versions.
 
 ## Rules
 

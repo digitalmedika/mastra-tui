@@ -10,7 +10,7 @@ export function DeviceLogin({ onLogin }: DeviceLoginProps) {
   const { phase, userCode, verificationUri, error } = useDeviceLogin(onLogin);
   const { width: terminalWidth } = useTerminalDimensions();
 
-  const divider = '─'.repeat(Math.max(terminalWidth - 8, 12));
+  const divider = '-'.repeat(Math.max(terminalWidth - 8, 12));
 
   return (
     <box style={{ width: '100%', height: '100%', flexDirection: 'column' }}>

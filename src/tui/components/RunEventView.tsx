@@ -21,10 +21,10 @@ export function RunEventView({ event }: { event: RunEvent }) {
         <text content={event.prompt} style={{ fg: pathFg, attributes: TextAttributes.BOLD }} />
       </box>
       <text>
-        <span fg={branchFg}>{'└ '}</span>
+        <span fg={branchFg}>{'- '}</span>
         <span fg={mutedFg}>{'agent '}</span>
         <span fg={textFg}>{event.agent}</span>
-        <span fg={mutedFg}>{` · ${statusText}`}</span>
+        <span fg={mutedFg}>{` - ${statusText}`}</span>
       </text>
     </box>
   );

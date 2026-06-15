@@ -36,7 +36,7 @@ export function ShellEventView({ event }: { event: ShellEvent }) {
         <text content={event.command} style={{ fg: pathFg, attributes: TextAttributes.BOLD }} />
       </box>
       <text>
-        <span fg={branchFg}>{'└ '}</span>
+        <span fg={branchFg}>{'- '}</span>
         <span fg={event.status === 'error' ? redFg : mutedFg}>{statusLabel}</span>
         <span fg={mutedFg}>{` di ${event.directory}`}</span>
       </text>

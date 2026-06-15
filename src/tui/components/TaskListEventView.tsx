@@ -14,7 +14,7 @@ export function TaskListEventView({ event }: { event: TaskListEvent }) {
         <text content={event.summary} style={{ fg: pathFg, attributes: TextAttributes.BOLD }} />
       </box>
       <text>
-        <span fg={branchFg}>{'└ '}</span>
+        <span fg={branchFg}>{'- '}</span>
         <span fg={event.status === 'error' ? redFg : mutedFg}>{statusText}</span>
       </text>
     </box>

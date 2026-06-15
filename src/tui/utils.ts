@@ -169,7 +169,7 @@ export const compactText = (text: string, maxLength = 90) => {
     return normalized;
   }
 
-  return `${normalized.slice(0, maxLength - 1)}…`;
+  return `${normalized.slice(0, maxLength - 3)}...`;
 };
 
 export const formatSessionDate = (value: Date | string | undefined) => {

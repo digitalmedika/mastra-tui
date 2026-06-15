@@ -1,7 +1,7 @@
 import { SyntaxStyle, TextAttributes, getTreeSitterClient } from '@opentui/core';
 import type { TuiSession } from './types';
 
-export const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+export const SPINNER_FRAMES = ['|', '/', '-', '\\'];
 
 // Initialize tree-sitter client for syntax highlighting
 export const treeSitterClient = getTreeSitterClient();

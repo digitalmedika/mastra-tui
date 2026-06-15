@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { openAICompatibleAgent } from '../../mastra/agents/openai-compatible-agent';
+import { getCurrentModelId, openAICompatibleAgent, setModelIdAndRefresh } from '../../mastra/agents/openai-compatible-agent';
 import { agentMaxSteps, defaultSession, defaultSessionId, tuiResourceId } from '../constants';
+import { fetchModels, getCachedModels, initModelStore, setSelectedModelId, type CatalogModel } from '../model-store';
+import { fetchLatestBackendTokenUsageSince } from '../usage-store';
 import {
   createEditEvent,
   createExploreChildEvent,
@@ -13,7 +15,7 @@ import {
   isTaskListToolName,
 } from '../event-factories';
 import type { ExploreChildEvent, ExploreEvent, RunEvent, ShellEvent, StreamEvent, StreamRequest, StreamStatus, TaskItem, TokenUsage, ToolCardEvent, ToolPayload, TuiSession } from '../types';
-import { getSessionTitle, getStringField, normalizeTokenUsage } from '../utils';
+import { estimateTokens, getSessionTitle, getStringField, normalizeTokenUsage } from '../utils';
 
 const extractMemoryMessageText = (content: unknown) => {
   if (typeof content === 'string') return content;
@@ -79,6 +81,27 @@ export function useAgentStream() {
   const [currentSession, setCurrentSession] = useState<TuiSession>(defaultSession);
   const [sessions, setSessions] = useState<TuiSession[]>([defaultSession]);
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
+  const [models, setModels] = useState<CatalogModel[]>([]);
+  const [selectedModelId, setSelectedModelIdState] = useState<string>(() => getCurrentModelId());
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [modelsLoaded, setModelsLoaded] = useState(false);
+
+  // Initialize model store on mount
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const modelId = await initModelStore();
+      if (cancelled) return;
+      setSelectedModelIdState(modelId);
+      setModels(getCachedModels());
+      setModelsLoaded(true);
+      // If the initial model from the store differs from what the agent has, refresh the agent
+      if (modelId !== getCurrentModelId()) {
+        setModelIdAndRefresh(modelId);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const refreshSessions = useCallback(async () => {
     try {
@@ -194,7 +217,7 @@ export function useAgentStream() {
     const activeToolLines = new Map<number, string>();
     const activeToolLineByCallId = new Map<string, number>();
     const pendingToolLineByName = new Map<string, number>();
-    const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    const spinnerFrames = ['|', '/', '-', '\\'];
     let spinnerFrameIndex = 0;
     let activeExploreEventId: number | null = null;
     let finalTokenUsage: TokenUsage | undefined;
@@ -299,19 +322,58 @@ export function useAgentStream() {
         cacheReadTokens: next.cacheReadTokens ?? base.cacheReadTokens,
         cacheWriteTokens: next.cacheWriteTokens ?? base.cacheWriteTokens,
         cachedInputTokens: next.cachedInputTokens ?? base.cachedInputTokens,
+        estimated: next.estimated ?? base.estimated,
       };
+    };
+
+    const hasVisibleTokenUsage = (usage: TokenUsage | undefined) => {
+      if (!usage) return false;
+      return (
+        (usage.inputTokens !== undefined && usage.inputTokens > 0) ||
+        (usage.outputTokens !== undefined && usage.outputTokens > 0) ||
+        (usage.totalTokens !== undefined && usage.totalTokens > 0) ||
+        (usage.cacheReadTokens !== undefined && usage.cacheReadTokens > 0) ||
+        (usage.cacheWriteTokens !== undefined && usage.cacheWriteTokens > 0)
+      );
+    };
+
+    const buildEstimatedTokenUsage = (): TokenUsage | undefined => {
+      if (!assistantText.trim()) return undefined;
+      const inputTokens = estimateTokens([request.prompt]);
+      const outputTokens = estimateTokens([assistantText]);
+      return {
+        inputTokens,
+        outputTokens,
+        totalTokens: inputTokens + outputTokens,
+        estimated: true,
+      };
+    };
+
+    const extractTokenUsage = (source: Record<string, unknown> | undefined) => {
+      if (!source) return undefined;
+
+      const directUsage = normalizeTokenUsage(source.usage, source.providerMetadata ?? source.experimental_providerMetadata);
+      if (directUsage) return directUsage;
+
+      const totalUsage = normalizeTokenUsage(source.totalUsage, source.providerMetadata ?? source.experimental_providerMetadata);
+      if (totalUsage) return totalUsage;
+
+      const outputRecord = asArgsRecord(source.output);
+      const outputUsage = normalizeTokenUsage(outputRecord?.usage, source.providerMetadata ?? source.experimental_providerMetadata);
+      if (outputUsage) return outputUsage;
+
+      const stepResultRecord = asArgsRecord(source.stepResult);
+      return normalizeTokenUsage(stepResultRecord?.usage ?? stepResultRecord?.totalUsage, source.providerMetadata ?? source.experimental_providerMetadata);
     };
 
     const captureTokenUsage = (chunk: unknown) => {
       const chunkRecord = asArgsRecord(chunk);
       const payloadRecord = asArgsRecord(chunkRecord?.payload);
-      const source = payloadRecord ?? chunkRecord;
-      if (!source || (source.type !== 'finish' && source.type !== 'step-finish')) return;
+      const type = payloadRecord?.type ?? chunkRecord?.type;
+      if (type !== 'finish' && type !== 'step-finish') return;
 
-      finalTokenUsage = mergeTokenUsage(
-        finalTokenUsage,
-        normalizeTokenUsage(source.usage, source.providerMetadata ?? source.experimental_providerMetadata),
-      );
+      const usage = extractTokenUsage(payloadRecord) ?? extractTokenUsage(chunkRecord);
+      finalTokenUsage = mergeTokenUsage(finalTokenUsage, usage);
     };
 
     // ----- UI closure helpers -----
@@ -537,6 +599,7 @@ export function useAgentStream() {
 
     const run = async () => {
       if (request.id > 0) appendLine('');
+      const runStartedAt = Date.now();
       const runEventId = appendRunEvent(request.prompt);
 
       try {
@@ -719,19 +782,14 @@ export function useAgentStream() {
         updateRunningExploreEvents('done');
         activeExploreEventId = null;
         updateRunEvent(runEventId, 'done');
-        
-        // Only append token usage if there's actual data (not just totalTokens: 0)
-        if (finalTokenUsage) {
-          const hasValidData =
-            (finalTokenUsage.inputTokens !== undefined && finalTokenUsage.inputTokens > 0) ||
-            (finalTokenUsage.outputTokens !== undefined && finalTokenUsage.outputTokens > 0) ||
-            (finalTokenUsage.totalTokens !== undefined && finalTokenUsage.totalTokens > 0) ||
-            (finalTokenUsage.cacheReadTokens !== undefined && finalTokenUsage.cacheReadTokens > 0) ||
-            (finalTokenUsage.cacheWriteTokens !== undefined && finalTokenUsage.cacheWriteTokens > 0);
-          
-          if (hasValidData) {
-            appendTokenUsageEvent(finalTokenUsage);
-          }
+
+        const backendUsage = await fetchLatestBackendTokenUsageSince(runStartedAt);
+        const usageToDisplay =
+          hasVisibleTokenUsage(backendUsage) ? backendUsage :
+          hasVisibleTokenUsage(finalTokenUsage) ? finalTokenUsage :
+          buildEstimatedTokenUsage();
+        if (usageToDisplay) {
+          appendTokenUsageEvent(usageToDisplay);
         }
         
         setStatus('finished');
@@ -818,8 +876,38 @@ export function useAgentStream() {
     return true;
   }, [sessions, status]);
 
+  const refreshModels = useCallback(async () => {
+    const fetched = await fetchModels();
+    setModels(fetched);
+    return fetched;
+  }, []);
+
+  const openModelPicker = useCallback(async () => {
+    if (status === 'streaming') return false;
+    await refreshModels();
+    setModelPickerOpen(true);
+    return true;
+  }, [refreshModels, status]);
+
+  const closeModelPicker = useCallback(() => { setModelPickerOpen(false); }, []);
+
+  const selectModel = useCallback(async (modelPublicId: string) => {
+    if (status === 'streaming') return false;
+    const model = models.find((m) => m.publicModelId === modelPublicId);
+    if (!model) return false;
+    const changed = setModelIdAndRefresh(model.publicModelId);
+    if (changed) {
+      setSelectedModelIdState(model.publicModelId);
+      setSelectedModelId(model.publicModelId);
+    }
+    setModelPickerOpen(false);
+    return true;
+  }, [models, status]);
+
   return {
     events, tasks, status, currentSession, sessions, sessionPickerOpen,
     submitPrompt, clearMemory, createSession, openSessionPicker, closeSessionPicker, selectSession,
+    models, selectedModelId, modelPickerOpen, modelsLoaded,
+    refreshModels, openModelPicker, closeModelPicker, selectModel,
   };
 }

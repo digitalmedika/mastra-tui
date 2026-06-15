@@ -15,7 +15,7 @@ export function EditEventView({ event }: { event: EditEvent }) {
         <text content={event.path} style={{ fg: pathFg, attributes: TextAttributes.BOLD }} />
       </box>
       <text>
-        <span fg={mutedFg}>{'└ Updated '}</span>
+        <span fg={mutedFg}>{'- Updated '}</span>
         <span fg={pathFg} attributes={TextAttributes.BOLD}>{event.path}</span>
         <span fg={mutedFg}>{' with '}</span>
         <span fg={greenFg}>{plural(event.additions, 'addition', 'additions')}</span>
@@ -39,7 +39,7 @@ export function EditEventView({ event }: { event: EditEvent }) {
           fg={textFg}
         />
         {event.hiddenLines > 0 ? (
-          <text content={`… (${event.hiddenLines} more lines) [ctrl+o to expand]`} style={{ fg: mutedFg }} />
+          <text content={`... (${event.hiddenLines} more lines) [ctrl+o to expand]`} style={{ fg: mutedFg }} />
         ) : null}
       </box>
     </box>
