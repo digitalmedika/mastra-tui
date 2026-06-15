@@ -6,12 +6,12 @@ import { branchFg, mutedFg, pathFg, runBg, textFg } from '../constants';
 export function RunEventView({ event }: { event: RunEvent }) {
   const statusText =
     event.status === 'waiting'
-      ? 'Menunggu streaming response'
+      ? 'Waiting for streaming response'
       : event.status === 'streaming'
         ? 'Streaming response'
         : event.status === 'error'
           ? 'Error'
-          : 'Selesai';
+          : 'Done';
 
   return (
     <box style={{ width: '100%', flexDirection: 'column' }}>

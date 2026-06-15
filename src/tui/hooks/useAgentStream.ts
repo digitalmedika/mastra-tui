@@ -231,20 +231,20 @@ export function useAgentStream() {
         case 'tui_task_list':
         case 'tuiTaskListTool': {
           const record = asArgsRecord(args);
-          if (record?.action === 'set' && Array.isArray(record.tasks)) return `memperbarui checklist (${record.tasks.length} task)`;
-          if (record?.action === 'update') return `memperbarui checklist task ${String(record.taskId ?? '?')} -> ${String(record.status ?? '?')}`;
-          return 'memperbarui checklist';
+          if (record?.action === 'set' && Array.isArray(record.tasks)) return `updating checklist (${record.tasks.length} tasks)`;
+          if (record?.action === 'update') return `updating checklist task ${String(record.taskId ?? '?')} -> ${String(record.status ?? '?')}`;
+          return 'updating checklist';
         }
-        case 'mastra_workspace_read_file': return `membaca file ${(path ?? summarizeArgs(args)) || '(path tidak tersedia)'}`;
-        case 'mastra_workspace_write_file': return `menulis file ${(path ?? summarizeArgs(args)) || '(path tidak tersedia)'}`;
-        case 'mastra_workspace_edit_file': return `mengedit file ${(path ?? summarizeArgs(args)) || '(path tidak tersedia)'}`;
-        case 'mastra_workspace_list_files': return `mencari file di direktori ${directory}${summarizeArgs(args)}`;
-        case 'mastra_workspace_delete': return `menghapus ${(path ?? summarizeArgs(args)) || '(path tidak tersedia)'}`;
-        case 'mastra_workspace_file_stat': return `cek metadata ${(path ?? summarizeArgs(args)) || '(path tidak tersedia)'}`;
-        case 'mastra_workspace_mkdir': return `membuat direktori ${(path ?? summarizeArgs(args)) || '(path tidak tersedia)'}`;
-        case 'mastra_workspace_grep': return `mencari teks ${pattern ? `"${pattern}"` : '(pattern tidak tersedia)'} di ${path ?? '.'}${summarizeArgs(args)}`;
+        case 'mastra_workspace_read_file': return `reading file ${(path ?? summarizeArgs(args)) || '(path unavailable)'}`;
+        case 'mastra_workspace_write_file': return `writing file ${(path ?? summarizeArgs(args)) || '(path unavailable)'}`;
+        case 'mastra_workspace_edit_file': return `editing file ${(path ?? summarizeArgs(args)) || '(path unavailable)'}`;
+        case 'mastra_workspace_list_files': return `listing files in ${directory}${summarizeArgs(args)}`;
+        case 'mastra_workspace_delete': return `deleting ${(path ?? summarizeArgs(args)) || '(path unavailable)'}`;
+        case 'mastra_workspace_file_stat': return `checking metadata ${(path ?? summarizeArgs(args)) || '(path unavailable)'}`;
+        case 'mastra_workspace_mkdir': return `creating directory ${(path ?? summarizeArgs(args)) || '(path unavailable)'}`;
+        case 'mastra_workspace_grep': return `searching text ${pattern ? `"${pattern}"` : '(pattern unavailable)'} in ${path ?? '.'}${summarizeArgs(args)}`;
         case 'mastra_workspace_shell':
-        case 'mastra_workspace_execute_command': return `menjalankan shell ${(command ?? summarizeArgs(args)) || '(command tidak tersedia)'}${directory ? ` di ${directory}` : ''}`;
+        case 'mastra_workspace_execute_command': return `running shell ${(command ?? summarizeArgs(args)) || '(command unavailable)'}${directory ? ` in ${directory}` : ''}`;
         default: return `${toolName}${summarizeArgs(args)}`;
       }
     };
@@ -719,7 +719,21 @@ export function useAgentStream() {
         updateRunningExploreEvents('done');
         activeExploreEventId = null;
         updateRunEvent(runEventId, 'done');
-        if (finalTokenUsage) appendTokenUsageEvent(finalTokenUsage);
+        
+        // Only append token usage if there's actual data (not just totalTokens: 0)
+        if (finalTokenUsage) {
+          const hasValidData =
+            (finalTokenUsage.inputTokens !== undefined && finalTokenUsage.inputTokens > 0) ||
+            (finalTokenUsage.outputTokens !== undefined && finalTokenUsage.outputTokens > 0) ||
+            (finalTokenUsage.totalTokens !== undefined && finalTokenUsage.totalTokens > 0) ||
+            (finalTokenUsage.cacheReadTokens !== undefined && finalTokenUsage.cacheReadTokens > 0) ||
+            (finalTokenUsage.cacheWriteTokens !== undefined && finalTokenUsage.cacheWriteTokens > 0);
+          
+          if (hasValidData) {
+            appendTokenUsageEvent(finalTokenUsage);
+          }
+        }
+        
         setStatus('finished');
         void refreshSessions();
       } catch (error) {

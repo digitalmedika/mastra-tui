@@ -95,6 +95,9 @@ export const normalizeTokenUsage = (usage: unknown, providerMetadata?: unknown):
     return undefined;
   }
 
+  // Try to get data from raw object if it exists
+  const rawData = getRecordField(usage, ['raw']);
+
   const inputDetails =
     getRecordField(usage, ['inputTokenDetails', 'inputTokensDetails', 'inputDetails', 'promptTokenDetails', 'promptTokensDetails']) ??
     getRecordField(usage, ['input']);
@@ -102,7 +105,9 @@ export const normalizeTokenUsage = (usage: unknown, providerMetadata?: unknown):
     getRecordField(usage, ['outputTokenDetails', 'outputTokensDetails', 'outputDetails', 'completionTokenDetails', 'completionTokensDetails']) ??
     getRecordField(usage, ['output']);
 
+  // Try to extract from raw data first, then fall back to standard fields
   const inputTokens =
+    getNumberField(rawData, ['prompt_tokens', 'promptTokens', 'inputTokens', 'input_tokens']) ??
     getNumberField(usage, ['inputTokens', 'promptTokens', 'input_tokens', 'prompt_tokens']) ??
     sumDefined(
       getNumberField(inputDetails, ['text', 'textTokens']),
@@ -112,6 +117,7 @@ export const normalizeTokenUsage = (usage: unknown, providerMetadata?: unknown):
       getNumberField(inputDetails, ['cacheWrite', 'cacheWriteTokens']),
     );
   const outputTokens =
+    getNumberField(rawData, ['completion_tokens', 'completionTokens', 'outputTokens', 'output_tokens']) ??
     getNumberField(usage, ['outputTokens', 'completionTokens', 'output_tokens', 'completion_tokens']) ??
     sumDefined(
       getNumberField(outputDetails, ['text', 'textTokens']),
@@ -120,6 +126,7 @@ export const normalizeTokenUsage = (usage: unknown, providerMetadata?: unknown):
       getNumberField(outputDetails, ['image', 'imageTokens']),
     );
   const totalTokens =
+    getNumberField(rawData, ['total_tokens', 'totalTokens']) ??
     getNumberField(usage, ['totalTokens', 'total_tokens']) ??
     sumDefined(inputTokens, outputTokens);
 
@@ -167,12 +174,12 @@ export const compactText = (text: string, maxLength = 90) => {
 
 export const formatSessionDate = (value: Date | string | undefined) => {
   if (!value) {
-    return 'waktu tidak tersedia';
+    return 'time unavailable';
   }
 
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) {
-    return 'waktu tidak tersedia';
+    return 'time unavailable';
   }
 
   return date.toLocaleString();

@@ -3,7 +3,7 @@ import { StreamingIndicator } from './StreamingIndicator';
 import type { ProgressEvent } from '../types';
 import { mutedFg, pathFg, purpleBg } from '../constants';
 
-const readPathPrefix = 'membaca file ';
+const readPathPrefix = 'reading file ';
 
 const formatProgressDescription = (event: ProgressEvent) => {
   if (event.label === 'READ' && event.description.startsWith(readPathPrefix)) {

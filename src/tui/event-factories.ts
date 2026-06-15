@@ -86,7 +86,7 @@ export const createShellEvent = (
   }
 
   const args = getPayloadArgs(payload, fallbackPayload);
-  const command = getStringField(args, ['cmd', 'command', 'script']) ?? '(command tidak tersedia)';
+  const command = getStringField(args, ['cmd', 'command', 'script']) ?? '(command unavailable)';
   const directory = getStringField(args, ['directory', 'dir', 'cwd', 'basePath']) ?? '.';
 
   return {
@@ -105,14 +105,14 @@ export const summarizeTaskList = (payload: ToolPayload, fallbackPayload?: ToolPa
   const args = getPayloadArgs(payload, fallbackPayload);
 
   if (args?.action === 'set' && Array.isArray(args.tasks)) {
-    return `memperbarui checklist (${args.tasks.length} task)`;
+    return `updating checklist (${args.tasks.length} tasks)`;
   }
 
   if (args?.action === 'update') {
-    return `memperbarui checklist task ${String(args.taskId ?? '?')} -> ${String(args.status ?? '?')}`;
+    return `updating checklist task ${String(args.taskId ?? '?')} -> ${String(args.status ?? '?')}`;
   }
 
-  return 'memperbarui checklist';
+  return 'updating checklist';
 };
 
 export const createTaskListEvent = (
@@ -184,7 +184,7 @@ export const createExploreChildEvent = (
   }
 
   if (isShellTool(toolName)) {
-    const command = getStringField(args, ['cmd', 'command', 'script']) ?? '(command tidak tersedia)';
+    const command = getStringField(args, ['cmd', 'command', 'script']) ?? '(command unavailable)';
     return { id, label: 'SHELL', path: compactText(command, 90) };
   }
 

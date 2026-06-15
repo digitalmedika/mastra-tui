@@ -26,12 +26,14 @@ export const markdownSyntaxStyle = SyntaxStyle.fromTheme([
 export const workspacePath = process.env.VIBE_CODING_WORKSPACE_PATH ?? '/Users/billymontolalu/Documents/project/central';
 export const configuredMaxSteps = Number(process.env.VIBE_CODING_MAX_STEPS);
 export const agentMaxSteps = Number.isFinite(configuredMaxSteps) && configuredMaxSteps > 0 ? configuredMaxSteps : 60;
+export const authServerUrl = process.env.AUTH_SERVER_URL ?? 'http://localhost:3001';
 
 export const mutedFg = '#7e8494';
 export const textFg = '#e8edf7';
 export const pathFg = '#f2f5ff';
+export const inputBorderFg = '#3d4556';
 export const purpleBg = '#5a3fc8';
-export const greenFg = '#2fd26f';
+export const greenFg = '#4fc1ff';
 export const greenBg = '#00583c';
 export const redFg = '#f87171';
 export const redBg = '#4a1d24';

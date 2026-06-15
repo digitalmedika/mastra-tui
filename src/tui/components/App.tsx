@@ -1,10 +1,12 @@
 import { useKeyboard, useTerminalDimensions } from '@opentui/react';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { clearSession, getStoredSession } from '../auth/storage';
+import { fetchSessionMe } from '../auth/device';
 import { useAgentStream } from '../hooks';
-import { assistantMarkerFg, mutedFg, redBg, runBg, shellBg, taskBg } from '../constants';
-import { compactText, getSessionTitle, toSessionOption } from '../utils';
+import { assistantMarkerFg, inputBorderFg, mutedFg, runBg, textFg } from '../constants';
+import { toSessionOption } from '../utils';
 import { Badge } from './Badge';
-import { StreamingIndicator } from './StreamingIndicator';
+import { DeviceLogin } from './DeviceLogin';
 import { TaskListPanel } from './TaskListPanel';
 import { StreamView } from './StreamView';
 
@@ -24,37 +26,31 @@ export function App({ onExit }: { onExit: () => void }) {
     selectSession,
   } = useAgentStream();
   const [inputValue, setInputValue] = useState('');
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const { width: terminalWidth } = useTerminalDimensions();
   const hasTasks = tasks.length > 0;
   const showSideTasks = hasTasks && terminalWidth >= 132;
-  const allTasksDone = hasTasks && tasks.every((task) => task.done);
   const sessionOptions = sessions.map(toSessionOption);
   const selectedSessionIndex = Math.max(
     0,
     sessions.findIndex((session) => session.id === currentSession.id),
   );
   const sessionSelectHeight = Math.min(14, Math.max(3, sessionOptions.length * 2));
-  const sessionLabel = compactText(getSessionTitle(currentSession), 36);
-  const visibleFooterState =
-    status === 'idle'
-      ? { label: 'READY', bg: runBg, text: `session ${sessionLabel} - enter kirim - /new - /sessions - /clear` }
-      : status === 'streaming'
-        ? { label: 'STREAM', bg: shellBg, text: `session ${sessionLabel} - scroll panah/page - esc keluar` }
-        : status === 'error'
-          ? { label: 'ERROR', bg: redBg, text: `session ${sessionLabel} - enter kirim - /new - /sessions - /clear` }
-          : allTasksDone
-            ? { label: 'DONE', bg: taskBg, text: `session ${sessionLabel} - task selesai - enter kirim` }
-            : { label: 'PAUSED', bg: redBg, text: `session ${sessionLabel} - task belum selesai - enter lanjut` };
-  const footerState =
-    status === 'idle'
-      ? { label: 'READY', bg: runBg, text: 'enter kirim · esc keluar · /clear bersihkan' }
-      : status === 'streaming'
-        ? { label: 'STREAM', bg: shellBg, text: 'scroll panah/page · esc keluar' }
-        : status === 'error'
-          ? { label: 'ERROR', bg: redBg, text: 'enter kirim · esc keluar · /clear bersihkan' }
-          : allTasksDone
-            ? { label: 'DONE', bg: taskBg, text: 'task selesai · enter kirim · esc keluar' }
-            : { label: 'PAUSED', bg: redBg, text: 'task belum selesai · enter lanjut · esc keluar' };
+
+  useEffect(() => {
+    const session = getStoredSession();
+    if (!session) {
+      setIsAuthenticated(false);
+      return;
+    }
+    fetchSessionMe(session.token)
+      .then(() => setIsAuthenticated(true))
+      .catch((error) => {
+        console.error('[Auth] Failed to verify session:', error);
+        clearSession();
+        setIsAuthenticated(false);
+      });
+  }, []);
 
   useKeyboard((key) => {
     if (key.name === 'escape') {
@@ -97,6 +93,19 @@ export function App({ onExit }: { onExit: () => void }) {
     }
   };
 
+  if (isAuthenticated === null) {
+    return (
+      <box style={{ width: '100%', height: '100%', flexDirection: 'column', paddingLeft: 4, paddingRight: 4 }}>
+        <box style={{ height: 1 }} />
+        <text content="Loading authentication..." style={{ fg: mutedFg }} />
+      </box>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <DeviceLogin onLogin={() => setIsAuthenticated(true)} />;
+  }
+
   return (
     <box style={{ width: '100%', height: '100%', flexDirection: 'column' }}>
       {sessionPickerOpen ? (
@@ -112,7 +121,7 @@ export function App({ onExit }: { onExit: () => void }) {
         >
           <box style={{ width: '100%', flexDirection: 'row' }}>
             <Badge label="SESSIONS" bg={runBg} />
-            <text content="  pilih session lalu enter" style={{ fg: mutedFg }} />
+            <text content="  choose a session, then press enter" style={{ fg: mutedFg }} />
           </box>
           <select
             focused
@@ -128,7 +137,7 @@ export function App({ onExit }: { onExit: () => void }) {
               }
             }}
           />
-          <text content="enter pilih - esc batal - /new dari input untuk session baru" style={{ fg: mutedFg }} />
+          <text content="enter select - esc cancel - /new from input to create a session" style={{ fg: mutedFg }} />
         </box>
       ) : null}
       {hasTasks && !showSideTasks ? (
@@ -148,24 +157,38 @@ export function App({ onExit }: { onExit: () => void }) {
           <TaskListPanel tasks={tasks} sidePanel terminalWidth={terminalWidth} />
         ) : null}
       </box>
-      <box style={{ width: '100%', flexDirection: 'row', flexShrink: 0 }}>
-        <Badge label={visibleFooterState.label} bg={visibleFooterState.bg} />
-        {status === 'streaming' ? <StreamingIndicator /> : <text content="  " />}
-        <text content={visibleFooterState.text} style={{ fg: mutedFg }} />
-      </box>
-      <text content={'─'.repeat(terminalWidth)} style={{ fg: mutedFg }} />
-      <box style={{ width: '100%', flexDirection: 'row', flexShrink: 0 }}>
-        <text content="> " style={{ fg: assistantMarkerFg }} />
+      <box
+        style={{
+          width: '100%',
+          height: 3,
+          flexDirection: 'row',
+          alignItems: 'center',
+          flexShrink: 0,
+          border: true,
+          borderStyle: 'single',
+          borderColor: inputBorderFg,
+          paddingLeft: 1,
+          paddingRight: 1,
+        }}
+      >
+        <text content="> " style={{ fg: assistantMarkerFg, width: 2, flexShrink: 0 }} />
         <input
           focused={!sessionPickerOpen}
           value={inputValue}
-          placeholder={status === 'streaming' ? 'tunggu streaming selesai...' : 'ketik instruksi lalu enter'}
+          placeholder={status === 'streaming' ? 'Wait for streaming to finish...' : 'Ask your question...'}
           onInput={setInputValue}
           onSubmit={handleSubmit}
-          style={{ flexGrow: 1 }}
+          style={{
+            flexGrow: 1,
+            flexShrink: 1,
+            flexBasis: 0,
+            textColor: textFg,
+            focusedTextColor: textFg,
+            placeholderColor: mutedFg,
+            cursorColor: assistantMarkerFg,
+          }}
         />
       </box>
-      <text content={'─'.repeat(terminalWidth)} style={{ fg: mutedFg }} />
     </box>
   );
 }
