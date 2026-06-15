@@ -484,15 +484,19 @@ export function useAgentStream() {
       activeResponseLineId = null;
       const lineId = nextLineIdRef.current;
       nextLineIdRef.current += 1;
-      setEvents((current) => [...current, { id: lineId, type: 'progress', label, description }]);
+      setEvents((current) => [...current, { id: lineId, type: 'progress', label, description, status: 'running' }]);
       activeToolLines.set(lineId, label);
       return lineId;
     };
 
-    const updateProgressEvent = (lineId: number, label: string, description: string) => {
-      activeToolLines.set(lineId, label);
+    const updateProgressEvent = (lineId: number, label: string, description: string, status: 'running' | 'done' | 'error' = 'running') => {
+      if (status === 'running') {
+        activeToolLines.set(lineId, label);
+      } else {
+        activeToolLines.delete(lineId);
+      }
       setEvents((current) =>
-        current.map((event) => (event.id === lineId && event.type === 'progress' ? { ...event, label, description } : event)),
+        current.map((event) => (event.id === lineId && event.type === 'progress' ? { ...event, label, description, status } : event)),
       );
     };
 
@@ -728,7 +732,7 @@ export function useAgentStream() {
               if (child) addExploreChild(activeExploreEventId, child);
               if (lineId !== undefined) { removeProgressEvent(lineId); activeToolLineByCallId.delete(chunk.payload.toolCallId ?? ''); }
             } else if (lineId !== undefined) {
-              removeProgressEvent(lineId);
+              updateProgressEvent(lineId, getToolLabel(toolName), description, 'done');
               activeToolLineByCallId.delete(chunk.payload.toolCallId ?? '');
             }
           }
@@ -761,11 +765,11 @@ export function useAgentStream() {
               nextLineIdRef.current += 1;
               appendToolEvent(taskListEvent);
             } else if (lineId !== undefined) {
-              removeProgressEvent(lineId);
+              updateProgressEvent(lineId, getToolLabel(toolName), description, 'error');
               activeToolLineByCallId.delete(chunk.payload.toolCallId ?? '');
-              appendLogLine(`[!] ${description}`);
             } else {
-              appendLogLine(`[!] ${description}`);
+              appendProgressEvent(getToolLabel(toolName), description);
+              updateProgressEvent(nextLineIdRef.current - 1, getToolLabel(toolName), description, 'error');
             }
           }
         }

@@ -209,7 +209,6 @@ export const createExploreEvent = (
   const title = compactText(prompt || query || 'Explore workspace');
   const child = createExploreChildEvent(id, payload, fallbackPayload);
   const resultText = getResultText(payload.result) ?? getResultText(fallbackPayload?.result);
-
   return {
     id,
     type: 'explore',

@@ -106,6 +106,7 @@ export type ProgressEvent = {
   type: 'progress';
   label: string;
   description: string;
+  status?: 'running' | 'done' | 'error';
 };
 
 export type ToolCardEvent = EditEvent | ReadEvent | ExploreEvent | ShellEvent | TaskListEvent;

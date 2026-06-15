@@ -1,6 +1,6 @@
 import { Badge } from './Badge';
 import type { TokenUsageEvent } from '../types';
-import { greenFg, mutedFg, redFg, runBg } from '../constants';
+import { branchFg, greenFg, mutedFg, redFg, runBg } from '../constants';
 import { formatTokenCount } from '../utils';
 
 export function TokenUsageEventView({ event }: { event: TokenUsageEvent }) {
@@ -33,17 +33,19 @@ export function TokenUsageEventView({ event }: { event: TokenUsageEvent }) {
   }
 
   return (
-    <box style={{ width: '100%', flexDirection: 'row', marginTop: 1 }}>
-      <Badge label={event.label} bg={runBg} />
-      <text content=" " />
+    <box style={{ width: '100%', flexDirection: 'column', marginTop: 1 }}>
+      <box style={{ width: '100%', flexDirection: 'row' }}>
+        <Badge label={event.label} bg={runBg} />
+      </box>
       <text>
+        <span fg={branchFg}>{'└ '}</span>
         {parts.map((part, i) => {
           const isInput = part.startsWith('in ');
           const isOutput = part.startsWith('out ');
           return (
             <span key={i}>
-              {i > 0 ? <span fg={mutedFg} content="  " /> : null}
-              <span fg={isInput ? greenFg : isOutput ? redFg : mutedFg} content={part} />
+              {i > 0 ? <span fg={mutedFg}>  </span> : null}
+              <span fg={isInput ? greenFg : isOutput ? redFg : mutedFg}>{part}</span>
             </span>
           );
         })}
