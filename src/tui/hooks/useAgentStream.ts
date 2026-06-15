@@ -12,8 +12,8 @@ import {
   isShellTool,
   isTaskListToolName,
 } from '../event-factories';
-import type { ExploreChildEvent, ExploreEvent, RunEvent, ShellEvent, StreamEvent, StreamRequest, StreamStatus, TaskItem, ToolCardEvent, ToolPayload, TuiSession } from '../types';
-import { getSessionTitle, getStringField } from '../utils';
+import type { ExploreChildEvent, ExploreEvent, RunEvent, ShellEvent, StreamEvent, StreamRequest, StreamStatus, TaskItem, TokenUsage, ToolCardEvent, ToolPayload, TuiSession } from '../types';
+import { getSessionTitle, getStringField, normalizeTokenUsage } from '../utils';
 
 const extractMemoryMessageText = (content: unknown) => {
   if (typeof content === 'string') return content;
@@ -197,6 +197,7 @@ export function useAgentStream() {
     const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
     let spinnerFrameIndex = 0;
     let activeExploreEventId: number | null = null;
+    let finalTokenUsage: TokenUsage | undefined;
 
     // ----- inlined helpers that close over mutable refs -----
 
@@ -288,6 +289,31 @@ export function useAgentStream() {
       }
     };
 
+    const mergeTokenUsage = (base: TokenUsage | undefined, next: TokenUsage | undefined): TokenUsage | undefined => {
+      if (!base) return next;
+      if (!next) return base;
+      return {
+        inputTokens: next.inputTokens ?? base.inputTokens,
+        outputTokens: next.outputTokens ?? base.outputTokens,
+        totalTokens: next.totalTokens ?? base.totalTokens,
+        cacheReadTokens: next.cacheReadTokens ?? base.cacheReadTokens,
+        cacheWriteTokens: next.cacheWriteTokens ?? base.cacheWriteTokens,
+        cachedInputTokens: next.cachedInputTokens ?? base.cachedInputTokens,
+      };
+    };
+
+    const captureTokenUsage = (chunk: unknown) => {
+      const chunkRecord = asArgsRecord(chunk);
+      const payloadRecord = asArgsRecord(chunkRecord?.payload);
+      const source = payloadRecord ?? chunkRecord;
+      if (!source || (source.type !== 'finish' && source.type !== 'step-finish')) return;
+
+      finalTokenUsage = mergeTokenUsage(
+        finalTokenUsage,
+        normalizeTokenUsage(source.usage, source.providerMetadata ?? source.experimental_providerMetadata),
+      );
+    };
+
     // ----- UI closure helpers -----
 
     setStatus('streaming');
@@ -327,6 +353,13 @@ export function useAgentStream() {
       setEvents((current) => [...current, toolEvent]);
     };
 
+    const appendTokenUsageEvent = (usage: TokenUsage) => {
+      activeResponseLineId = null;
+      const eventId = nextLineIdRef.current;
+      nextLineIdRef.current += 1;
+      setEvents((current) => [...current, { id: eventId, type: 'usage', label: 'USAGE', usage }]);
+    };
+
     const appendRunEvent = (prompt: string) => {
       const eventId = nextLineIdRef.current;
       nextLineIdRef.current += 1;
@@ -358,21 +391,32 @@ export function useAgentStream() {
       );
     };
 
-    const updateRunningExploreEvents = (status?: ExploreEvent['status']) => {
+    const getExploreRuntime = (startedAt: number) => {
       const now = Date.now();
+      return {
+        elapsedSeconds: Math.max(0, Math.round((now - startedAt) / 1000)),
+      };
+    };
+
+    const updateRunningExploreEvents = (status?: ExploreEvent['status'], exceptEventId?: number) => {
       setEvents((current) =>
         current.map((event) => {
           if (event.type !== 'explore' || event.status !== 'running') return event;
-          const chars = [request.prompt, assistantText].reduce((t, p) => t + p.length, 0);
+          if (event.id === exceptEventId) return event;
           return {
             ...event,
             status: status ?? event.status,
-            elapsedSeconds: Math.max(0, Math.round((now - event.startedAt) / 1000)),
-            tokenEstimate: Math.max(1, Math.round(chars / 4)),
+            ...getExploreRuntime(event.startedAt),
           };
         }),
       );
     };
+
+    const finishExploreEvent = (event: ExploreEvent, status: ExploreEvent['status'] = 'done'): ExploreEvent => ({
+      ...event,
+      status,
+      ...getExploreRuntime(event.startedAt),
+    });
 
     const appendProgressEvent = (label: string, description: string) => {
       activeResponseLineId = null;
@@ -408,11 +452,9 @@ export function useAgentStream() {
       setEvents((current) =>
         current.map((event) => {
           if (event.type === 'explore' && event.status === 'running' && hasActiveTools) {
-            const chars = [request.prompt, assistantText].reduce((t, p) => t + p.length, 0);
             return {
               ...event,
               elapsedSeconds: Math.max(0, Math.round((Date.now() - event.startedAt) / 1000)),
-              tokenEstimate: Math.max(1, Math.round(chars / 4)),
             };
           }
           if (event.type === 'shell' && event.status === 'running' && hasActiveTools) {
@@ -506,6 +548,7 @@ export function useAgentStream() {
 
         for await (const chunk of response.fullStream) {
           if (cancelled) return;
+          captureTokenUsage(chunk);
 
           if (chunk.type === 'text-delta') {
             appendDelta(chunk.payload.text);
@@ -545,7 +588,11 @@ export function useAgentStream() {
             );
             const taskListEvent = createTaskListEvent(lineId, chunk.payload, undefined, 'running');
 
-            if (exploreEvent) { activeExploreEventId = lineId; replaceLineWithToolEvent(lineId, exploreEvent); }
+            if (exploreEvent) {
+              updateRunningExploreEvents('done', lineId);
+              activeExploreEventId = lineId;
+              replaceLineWithToolEvent(lineId, exploreEvent);
+            }
             else if (shellEvent) { replaceLineWithToolEvent(lineId, shellEvent); }
             else if (taskListEvent) { replaceLineWithToolEvent(lineId, taskListEvent); }
           }
@@ -595,12 +642,12 @@ export function useAgentStream() {
               appendToolEvent(readEvent);
             } else if (exploreEvent && lineId !== undefined) {
               activeExploreEventId = null;
-              replaceLineWithToolEvent(lineId, exploreEvent);
+              replaceLineWithToolEvent(lineId, finishExploreEvent(exploreEvent));
               activeToolLineByCallId.delete(chunk.payload.toolCallId ?? '');
             } else if (exploreEvent) {
               activeExploreEventId = null;
               nextLineIdRef.current += 1;
-              appendToolEvent(exploreEvent);
+              appendToolEvent(finishExploreEvent(exploreEvent));
             } else if (shellEvent && lineId !== undefined) {
               replaceLineWithToolEvent(lineId, shellEvent);
               activeToolLineByCallId.delete(chunk.payload.toolCallId ?? '');
@@ -661,13 +708,24 @@ export function useAgentStream() {
         }
 
         if (cancelled) return;
+        const responseUsage = await Promise.allSettled([response.usage, response.providerMetadata]).then(
+          ([usageResult, metadataResult]) =>
+            normalizeTokenUsage(
+              usageResult.status === 'fulfilled' ? usageResult.value : undefined,
+              metadataResult.status === 'fulfilled' ? metadataResult.value : undefined,
+            ),
+        );
+        finalTokenUsage = mergeTokenUsage(finalTokenUsage, responseUsage);
         updateRunningExploreEvents('done');
         activeExploreEventId = null;
         updateRunEvent(runEventId, 'done');
+        if (finalTokenUsage) appendTokenUsageEvent(finalTokenUsage);
         setStatus('finished');
         void refreshSessions();
       } catch (error) {
         if (cancelled) return;
+        updateRunningExploreEvents('error');
+        activeExploreEventId = null;
         updateRunEvent(runEventId, 'error');
         appendLine(`error: ${error instanceof Error ? error.message : String(error)}`);
         setStatus('error');

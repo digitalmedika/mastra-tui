@@ -208,6 +208,7 @@ export const createExploreEvent = (
   const query = getStringField(args, ['query', 'pattern']);
   const title = compactText(prompt || query || 'Explore workspace');
   const child = createExploreChildEvent(id, payload, fallbackPayload);
+  const resultText = getResultText(payload.result) ?? getResultText(fallbackPayload?.result);
 
   return {
     id,
@@ -217,7 +218,7 @@ export const createExploreEvent = (
     status: 'running',
     startedAt,
     elapsedSeconds: 0,
-    tokenEstimate: estimateTokens([prompt, assistantText, JSON.stringify(args ?? {})]),
+    tokenEstimate: estimateTokens([JSON.stringify(args ?? {}), resultText ?? '']),
     children: child ? [child] : [],
   };
 };

@@ -5,7 +5,7 @@ import { mutedFg, textFg } from '../constants';
 
 export function ReadEventView({ event }: { event: ReadEvent }) {
   return (
-    <box style={{ width: '100%', flexDirection: 'row' }}>
+    <box style={{ width: '100%', flexDirection: 'row', marginTop: 1 }}>
       <Badge label={event.label} />
       <text content="  " />
       <text>

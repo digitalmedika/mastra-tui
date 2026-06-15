@@ -9,5 +9,6 @@ export { ShellEventView } from './ShellEventView';
 export { TaskListEventView } from './TaskListEventView';
 export { ExploreEventView } from './ExploreEventView';
 export { EditEventView } from './EditEventView';
+export { TokenUsageEventView } from './TokenUsageEventView';
 export { StreamView } from './StreamView';
 export { App } from './App';

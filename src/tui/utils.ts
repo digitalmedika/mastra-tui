@@ -2,7 +2,7 @@ import type { SelectOption } from '@opentui/core';
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { workspacePath } from './constants';
-import type { EditPreviewLine, ToolPayload, TuiSession } from './types';
+import type { EditPreviewLine, TokenUsage, ToolPayload, TuiSession } from './types';
 
 export const isRecord = (value: unknown): value is Record<string, unknown> => {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -53,6 +53,107 @@ export const formatTokenCount = (tokens: number) => {
   }
 
   return String(tokens);
+};
+
+const getNumberField = (record: Record<string, unknown> | undefined, keys: string[]) => {
+  if (!record) {
+    return undefined;
+  }
+
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+  }
+
+  return undefined;
+};
+
+const getRecordField = (record: Record<string, unknown> | undefined, keys: string[]) => {
+  if (!record) {
+    return undefined;
+  }
+
+  for (const key of keys) {
+    const value = record[key];
+    if (isRecord(value)) {
+      return value;
+    }
+  }
+
+  return undefined;
+};
+
+const sumDefined = (...values: Array<number | undefined>) => {
+  const defined = values.filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  return defined.length > 0 ? defined.reduce((total, value) => total + value, 0) : undefined;
+};
+
+export const normalizeTokenUsage = (usage: unknown, providerMetadata?: unknown): TokenUsage | undefined => {
+  if (!isRecord(usage)) {
+    return undefined;
+  }
+
+  const inputDetails =
+    getRecordField(usage, ['inputTokenDetails', 'inputTokensDetails', 'inputDetails', 'promptTokenDetails', 'promptTokensDetails']) ??
+    getRecordField(usage, ['input']);
+  const outputDetails =
+    getRecordField(usage, ['outputTokenDetails', 'outputTokensDetails', 'outputDetails', 'completionTokenDetails', 'completionTokensDetails']) ??
+    getRecordField(usage, ['output']);
+
+  const inputTokens =
+    getNumberField(usage, ['inputTokens', 'promptTokens', 'input_tokens', 'prompt_tokens']) ??
+    sumDefined(
+      getNumberField(inputDetails, ['text', 'textTokens']),
+      getNumberField(inputDetails, ['audio', 'audioTokens']),
+      getNumberField(inputDetails, ['image', 'imageTokens']),
+      getNumberField(inputDetails, ['cacheRead', 'cacheReadTokens', 'cachedInputTokens']),
+      getNumberField(inputDetails, ['cacheWrite', 'cacheWriteTokens']),
+    );
+  const outputTokens =
+    getNumberField(usage, ['outputTokens', 'completionTokens', 'output_tokens', 'completion_tokens']) ??
+    sumDefined(
+      getNumberField(outputDetails, ['text', 'textTokens']),
+      getNumberField(outputDetails, ['reasoning', 'reasoningTokens']),
+      getNumberField(outputDetails, ['audio', 'audioTokens']),
+      getNumberField(outputDetails, ['image', 'imageTokens']),
+    );
+  const totalTokens =
+    getNumberField(usage, ['totalTokens', 'total_tokens']) ??
+    sumDefined(inputTokens, outputTokens);
+
+  const providerRecord = isRecord(providerMetadata) ? providerMetadata : undefined;
+  const providerInputDetails =
+    getRecordField(providerRecord, ['inputTokenDetails', 'inputTokensDetails', 'inputDetails', 'usage']) ??
+    getRecordField(getRecordField(providerRecord, ['anthropic', 'openai', 'google']), ['inputTokenDetails', 'inputTokensDetails', 'inputDetails', 'usage']);
+
+  const cachedInputTokens =
+    getNumberField(usage, ['cachedInputTokens', 'cached_input_tokens']) ??
+    getNumberField(inputDetails, ['cachedInputTokens', 'cached', 'cachedTokens']) ??
+    getNumberField(providerInputDetails, ['cachedInputTokens', 'cached_input_tokens', 'cached', 'cachedTokens']);
+  const cacheReadTokens =
+    getNumberField(usage, ['cacheReadTokens', 'cache_read_tokens']) ??
+    getNumberField(inputDetails, ['cacheRead', 'cacheReadTokens', 'cache_read', 'cache_read_tokens']) ??
+    getNumberField(providerInputDetails, ['cacheRead', 'cacheReadTokens', 'cache_read', 'cache_read_tokens']) ??
+    cachedInputTokens;
+  const cacheWriteTokens =
+    getNumberField(usage, ['cacheWriteTokens', 'cache_write_tokens']) ??
+    getNumberField(inputDetails, ['cacheWrite', 'cacheWriteTokens', 'cache_write', 'cache_write_tokens']) ??
+    getNumberField(providerInputDetails, ['cacheWrite', 'cacheWriteTokens', 'cache_write', 'cache_write_tokens']);
+
+  if ([inputTokens, outputTokens, totalTokens, cacheReadTokens, cacheWriteTokens, cachedInputTokens].every((value) => value === undefined)) {
+    return undefined;
+  }
+
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    cachedInputTokens,
+  };
 };
 
 export const compactText = (text: string, maxLength = 90) => {

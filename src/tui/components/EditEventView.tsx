@@ -8,7 +8,7 @@ export function EditEventView({ event }: { event: EditEvent }) {
   const removalSummary = event.removals > 0 ? `, ${plural(event.removals, 'removal', 'removals')}` : '';
 
   return (
-    <box style={{ width: '100%', flexDirection: 'column' }}>
+    <box style={{ width: '100%', flexDirection: 'column', marginTop: 1 }}>
       <box style={{ width: '100%', flexDirection: 'row' }}>
         <Badge label={event.label} />
         <text content="  " />

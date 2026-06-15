@@ -19,6 +19,22 @@ export type RunEvent = {
   status: 'waiting' | 'streaming' | 'done' | 'error';
 };
 
+export type TokenUsage = {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  cachedInputTokens?: number;
+};
+
+export type TokenUsageEvent = {
+  id: number;
+  type: 'usage';
+  label: 'USAGE';
+  usage: TokenUsage;
+};
+
 export type EditPreviewLine = {
   lineNumber?: number;
   marker: ' ' | '+' | '-';
@@ -93,7 +109,7 @@ export type ProgressEvent = {
 
 export type ToolCardEvent = EditEvent | ReadEvent | ExploreEvent | ShellEvent | TaskListEvent;
 
-export type StreamEvent = StreamTextEvent | StreamAssistantEvent | RunEvent | ToolCardEvent | ProgressEvent;
+export type StreamEvent = StreamTextEvent | StreamAssistantEvent | RunEvent | TokenUsageEvent | ToolCardEvent | ProgressEvent;
 
 export type StreamStatus = 'idle' | 'streaming' | 'finished' | 'error';
 
