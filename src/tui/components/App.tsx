@@ -1,9 +1,9 @@
 import { useKeyboard, useTerminalDimensions } from '@opentui/react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { clearSession, getStoredSession } from '../auth/storage';
-import { fetchCreditsMe, fetchSessionMe } from '../auth/device';
+import { createPaymentTopUp, fetchCreditsMe, fetchPaymentStatus, fetchSessionMe } from '../auth/device';
 import { useAgentStream } from '../hooks';
-import { assistantMarkerFg, inputBorderFg, mutedFg, runBg, textFg } from '../constants';
+import { assistantMarkerFg, greenFg, inputBorderFg, mutedFg, redFg, runBg, textFg } from '../constants';
 import { toSessionOption } from '../utils';
 import { refreshAgent } from '../../mastra/agents/openai-compatible-agent';
 import { Badge } from './Badge';
@@ -11,6 +11,12 @@ import { DeviceLogin } from './DeviceLogin';
 import { StreamingIndicator } from './StreamingIndicator';
 import { TaskListPanel } from './TaskListPanel';
 import { StreamView } from './StreamView';
+import { PaymentOverlay, PAYMENT_AMOUNTS, type PaymentData, type PaymentPhase } from './PaymentOverlay';
+
+const hasPositiveBalance = (value: string | null) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0;
+};
 
 export function App({ onExit }: { onExit: () => void }) {
   const {
@@ -40,6 +46,12 @@ export function App({ onExit }: { onExit: () => void }) {
   const [inputValue, setInputValue] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [balance, setBalance] = useState<string | null>(null);
+  const [paymentOverlayOpen, setPaymentOverlayOpen] = useState(false);
+  const [paymentPhase, setPaymentPhase] = useState<PaymentPhase>('select');
+  const [paymentSelectedIndex, setPaymentSelectedIndex] = useState(0);
+  const [paymentData, setPaymentData] = useState<PaymentData | null>(null);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
   const { width: terminalWidth } = useTerminalDimensions();
   const hasTasks = tasks.length > 0;
   const showSideTasks = hasTasks && terminalWidth >= 132;
@@ -59,9 +71,18 @@ export function App({ onExit }: { onExit: () => void }) {
     models.findIndex((m) => m.publicModelId === selectedModelId),
   );
   const modelSelectHeight = Math.min(14, Math.max(3, modelOptions.length * 2));
-  const anyPickerOpen = sessionPickerOpen || modelPickerOpen;
+  const anyPickerOpen = sessionPickerOpen || modelPickerOpen || paymentOverlayOpen;
   const activeModel = models.find((m) => m.publicModelId === selectedModelId);
   const modelDisplayName = activeModel ? activeModel.name : selectedModelId;
+
+  const refreshBalance = useCallback(async () => {
+    const session = getStoredSession();
+    if (!session) return null;
+
+    const res = await fetchCreditsMe(session.token);
+    setBalance(res.data.balance);
+    return res.data.balance;
+  }, []);
 
   useEffect(() => {
     const session = getStoredSession();
@@ -83,14 +104,105 @@ export function App({ onExit }: { onExit: () => void }) {
 
   useEffect(() => {
     if (!isAuthenticated) return;
-    const session = getStoredSession();
-    if (!session) return;
-    fetchCreditsMe(session.token)
-      .then((res) => setBalance(res.data.balance))
+    refreshBalance()
       .catch((err) => console.error('[Balance] Failed to fetch:', err));
-  }, [isAuthenticated]);
+  }, [isAuthenticated, refreshBalance]);
+
+  // Refresh balance after each streaming request completes
+  const prevStatusRef = useRef(status);
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = status;
+
+    if ((prev === 'streaming' || prev === 'awaiting-approval') && (status === 'finished' || status === 'error')) {
+      refreshBalance()
+        .catch((err) => console.error('[Balance] Failed to refresh after stream:', err));
+    }
+  }, [refreshBalance, status]);
+
+  useEffect(() => {
+    if (!paymentOverlayOpen || paymentPhase !== 'ready') return;
+
+    let cancelled = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+
+    const pollBalance = async () => {
+      try {
+        const session = getStoredSession();
+        const paymentStatus =
+          session && paymentData?.orderId
+            ? await fetchPaymentStatus(session.token, paymentData.orderId)
+            : null;
+        const latestBalance = await refreshBalance();
+        if (cancelled) return;
+
+        if (paymentStatus?.data.status === 'failed') {
+          setPaymentError('Pembayaran gagal atau kedaluwarsa. Silakan coba lagi.');
+          setPaymentPhase('error');
+          return;
+        }
+
+        if (paymentStatus?.data.status === 'success' || hasPositiveBalance(latestBalance)) {
+          setPaymentOverlayOpen(false);
+          setPaymentPhase('select');
+          setPaymentSelectedIndex(0);
+          setPaymentData(null);
+          setPaymentError(null);
+
+          if (pendingPrompt && status !== 'streaming' && status !== 'awaiting-approval') {
+            if (submitPrompt(pendingPrompt)) {
+              setInputValue('');
+            }
+            setPendingPrompt(null);
+          }
+          return;
+        }
+      } catch (err) {
+        console.error('[Balance] Failed to poll after payment:', err);
+      }
+
+      if (!cancelled) {
+        timeout = setTimeout(pollBalance, 2000);
+      }
+    };
+
+    timeout = setTimeout(pollBalance, 1000);
+
+    return () => {
+      cancelled = true;
+      if (timeout) clearTimeout(timeout);
+    };
+  }, [paymentData, paymentOverlayOpen, paymentPhase, pendingPrompt, refreshBalance, status, submitPrompt]);
 
   useKeyboard((key) => {
+    // Payment overlay keyboard navigation
+    if (paymentOverlayOpen) {
+      if (key.name === 'up') {
+        setPaymentSelectedIndex((prev) => (prev > 0 ? prev - 1 : PAYMENT_AMOUNTS.length - 1));
+        return;
+      }
+      if (key.name === 'down') {
+        setPaymentSelectedIndex((prev) => (prev < PAYMENT_AMOUNTS.length - 1 ? prev + 1 : 0));
+        return;
+      }
+      if (key.name === 'return') {
+        if (paymentPhase === 'select') {
+          void handlePaymentSelect(PAYMENT_AMOUNTS[paymentSelectedIndex].value);
+        } else if (paymentPhase === 'ready' && paymentData) {
+          const url = paymentData.redirectUrl ?? paymentData.qrCodeUrl;
+          if (url) openUrl(url);
+        } else if (paymentPhase === 'error') {
+          resetPaymentOverlay();
+        }
+        return;
+      }
+      if (key.name === 'escape') {
+        resetPaymentOverlay();
+        return;
+      }
+      return;
+    }
+
     if (key.name === 'escape') {
       if (modelPickerOpen) {
         closeModelPicker();
@@ -104,10 +216,55 @@ export function App({ onExit }: { onExit: () => void }) {
     }
   });
 
+  const resetPaymentOverlay = useCallback(() => {
+    setPaymentOverlayOpen(false);
+    setPaymentPhase('select');
+    setPaymentSelectedIndex(0);
+    setPaymentData(null);
+    setPaymentError(null);
+    setPendingPrompt(null);
+  }, []);
+
+  const openUrl = useCallback((url: string) => {
+    const cmd =
+      process.platform === 'darwin'
+        ? ['open', url]
+        : process.platform === 'win32'
+          ? ['cmd', '/c', 'start', '', url]
+          : ['xdg-open', url];
+    Bun.spawn(cmd, { stdout: 'ignore', stderr: 'ignore', stdin: 'ignore' });
+  }, []);
+
+  const handlePaymentSelect = useCallback(async (amountIdr: number) => {
+    setPaymentPhase('loading');
+    setPaymentError(null);
+
+    try {
+      const session = getStoredSession();
+      if (!session) throw new Error('No active session');
+
+      const result = await createPaymentTopUp(session.token, amountIdr);
+      setPaymentData(result.data);
+      setPaymentPhase('ready');
+
+      // Refresh balance after successful payment creation
+      fetchCreditsMe(session.token)
+        .then((res) => setBalance(res.data.balance))
+        .catch((err) => console.error('[Balance] Failed to refresh:', err));
+    } catch (err) {
+      setPaymentError(err instanceof Error ? err.message : String(err));
+      setPaymentPhase('error');
+    }
+  }, []);
+
   const handleSubmit = (value: unknown) => {
     if (typeof value !== 'string') return;
 
     const trimmedValue = value.trim();
+
+    // If payment overlay is open, ignore text input
+    if (paymentOverlayOpen) return;
+
     const canStartAction = status !== 'streaming' && status !== 'awaiting-approval';
 
     if (trimmedValue === '/approve' && status === 'awaiting-approval') {
@@ -167,6 +324,20 @@ export function App({ onExit }: { onExit: () => void }) {
       clearSession();
       setIsAuthenticated(false);
       return;
+    }
+
+    // Check balance before submitting a regular prompt
+    if (canStartAction && !trimmedValue.startsWith('/')) {
+      const balanceNum = Number(balance);
+      if (balance !== null && Number.isFinite(balanceNum) && balanceNum <= 0) {
+        setPendingPrompt(value);
+        setPaymentOverlayOpen(true);
+        setPaymentPhase('select');
+        setPaymentSelectedIndex(0);
+        setPaymentData(null);
+        setPaymentError(null);
+        return;
+      }
     }
 
     if (submitPrompt(value)) {
@@ -263,6 +434,14 @@ export function App({ onExit }: { onExit: () => void }) {
           <text content="enter select - esc cancel" style={{ fg: mutedFg }} />
         </box>
       ) : null}
+      {paymentOverlayOpen ? (
+        <PaymentOverlay
+          phase={paymentPhase}
+          selectedIndex={paymentSelectedIndex}
+          paymentData={paymentData}
+          error={paymentError}
+        />
+      ) : null}
       {hasTasks && !showSideTasks ? (
         <TaskListPanel tasks={tasks} sidePanel={false} terminalWidth={terminalWidth} />
       ) : null}
@@ -299,11 +478,13 @@ export function App({ onExit }: { onExit: () => void }) {
           focused={!anyPickerOpen}
           value={inputValue}
           placeholder={
-            status === 'awaiting-approval'
-              ? 'Type /approve to continue or /deny to reject...'
-              : status === 'streaming'
-                ? 'Wait for streaming to finish...'
-                : 'Ask your question...'
+            paymentOverlayOpen
+              ? 'Pilih nominal top-up terlebih dahulu...'
+              : status === 'awaiting-approval'
+                ? 'Type /approve to continue or /deny to reject...'
+                : status === 'streaming'
+                  ? 'Wait for streaming to finish...'
+                  : 'Ask your question...'
           }
           onInput={setInputValue}
           onSubmit={handleSubmit}

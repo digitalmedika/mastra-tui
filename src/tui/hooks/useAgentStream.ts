@@ -81,6 +81,24 @@ const isTaskListToolNameFn = (toolName: string | undefined) => toolName === 'tui
 
 type ApprovalResume = (approved: boolean) => Promise<boolean>;
 
+const buildTaskContext = (tasks: TaskItem[]) => {
+  if (tasks.length === 0) return undefined;
+
+  const taskLines = tasks
+    .map((task) => {
+      const status = task.done ? 'completed' : task.current ? 'in_progress' : 'pending';
+      return `- ${task.index}. [${status}] ${task.text}`;
+    })
+    .join('\n');
+
+  return `Current visible TUI checklist state:
+${taskLines}
+
+Treat this checklist as authoritative when the user asks about task progress or completion.
+Do not say all tasks are complete unless every visible checklist item is completed.
+If you actually start or complete one of these visible checklist items, call tui_task_list action=update with the matching taskId before saying it is done.`;
+};
+
 const pathArgKeys = ['path', 'filePath', 'filepath', 'file', 'targetPath', 'target', 'directory', 'dir', 'cwd', 'basePath'];
 
 const getToolPathForApproval = (args: unknown) => {
@@ -826,6 +844,7 @@ export function useAgentStream() {
         const response = await openAICompatibleAgent.stream(request.prompt, {
           maxSteps: agentMaxSteps,
           memory: { resource: tuiResourceId, thread: currentSession.id },
+          ...(request.taskContext ? { system: request.taskContext } : {}),
           requestContext,
           requireToolApproval: shouldRequireToolApproval,
         });
@@ -858,6 +877,7 @@ export function useAgentStream() {
                     toolCallId: chunk.payload.toolCallId,
                     maxSteps: agentMaxSteps,
                     memory: { resource: tuiResourceId, thread: currentSession.id },
+                    ...(request.taskContext ? { system: request.taskContext } : {}),
                     requestContext: resumeContext,
                     requireToolApproval: shouldRequireToolApproval,
                   })
@@ -866,6 +886,7 @@ export function useAgentStream() {
                     toolCallId: chunk.payload.toolCallId,
                     maxSteps: agentMaxSteps,
                     memory: { resource: tuiResourceId, thread: currentSession.id },
+                    ...(request.taskContext ? { system: request.taskContext } : {}),
                     requestContext: resumeContext,
                     requireToolApproval: shouldRequireToolApproval,
                   });
@@ -1115,9 +1136,9 @@ export function useAgentStream() {
   const submitPrompt = useCallback((nextPrompt: string) => {
     const trimmedPrompt = nextPrompt.trim();
     if (!trimmedPrompt || status === 'streaming' || status === 'awaiting-approval') return false;
-    setRequest((current) => ({ id: (current?.id ?? -1) + 1, prompt: trimmedPrompt }));
+    setRequest((current) => ({ id: (current?.id ?? -1) + 1, prompt: trimmedPrompt, taskContext: buildTaskContext(tasks) }));
     return true;
-  }, [status]);
+  }, [status, tasks]);
 
   const respondToApproval = useCallback(async (approved: boolean) => {
     if (status !== 'awaiting-approval' || !approvalResumeRef.current) return false;

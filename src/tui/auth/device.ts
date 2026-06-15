@@ -137,6 +137,64 @@ export async function fetchCreditsMe(token: string): Promise<CreditsMeResponse> 
   return res.json() as Promise<CreditsMeResponse>;
 }
 
+export interface PaymentTopUpResponse {
+  data: {
+    id: string;
+    orderId: string;
+    txnId: string | null;
+    amountIdr: number;
+    qrCodeUrl: string | null;
+    redirectUrl: string | null;
+    payInstructions: string | null;
+    timeoutMinutes: number | null;
+  };
+}
+
+export async function createPaymentTopUp(
+  token: string,
+  amountIdr: number,
+): Promise<PaymentTopUpResponse> {
+  const res = await fetch(`${authServerUrl}/api/payment/top-up`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ amountIdr }),
+  });
+
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, `HTTP ${res.status}`));
+  }
+
+  return res.json() as Promise<PaymentTopUpResponse>;
+}
+
+export interface PaymentStatusResponse {
+  data: {
+    id: string;
+    orderId: string;
+    txnId: string | null;
+    amountIdr: number;
+    status: 'pending' | 'success' | 'failed' | string;
+    qrCodeUrl: string | null;
+    createdAt: string;
+    completedAt: string | null;
+  };
+}
+
+export async function fetchPaymentStatus(token: string, orderId: string): Promise<PaymentStatusResponse> {
+  const res = await fetch(`${authServerUrl}/api/payment/status/${encodeURIComponent(orderId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, `HTTP ${res.status}`));
+  }
+
+  return res.json() as Promise<PaymentStatusResponse>;
+}
+
 export function storeDeviceToken(token: string, expiresIn: number, user?: SessionMeResponse['data']['user']): void {
   const expiresAt = expiresIn > 0 ? Date.now() + expiresIn * 1000 : undefined;
   storeSession({ token, user, expiresAt });

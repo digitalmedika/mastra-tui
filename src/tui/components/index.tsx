@@ -5,6 +5,8 @@ export { Badge } from './Badge';
 export { DeviceLogin } from './DeviceLogin';
 export { EditEventView } from './EditEventView';
 export { ExploreEventView } from './ExploreEventView';
+export { PaymentOverlay, PAYMENT_AMOUNTS } from './PaymentOverlay';
+export type { PaymentData, PaymentPhase } from './PaymentOverlay';
 export { ProgressEventView } from './ProgressEventView';
 export { ReadEventView } from './ReadEventView';
 export { RunEventView } from './RunEventView';

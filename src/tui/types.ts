@@ -129,6 +129,7 @@ export type StreamStatus = 'idle' | 'streaming' | 'awaiting-approval' | 'finishe
 export type StreamRequest = {
   id: number;
   prompt: string;
+  taskContext?: string;
 };
 
 export type TaskItem = {
