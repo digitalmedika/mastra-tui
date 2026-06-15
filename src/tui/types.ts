@@ -16,7 +16,7 @@ export type RunEvent = {
   label: 'RUN';
   prompt: string;
   agent: string;
-  status: 'waiting' | 'streaming' | 'done' | 'error';
+  status: 'waiting' | 'streaming' | 'awaiting-approval' | 'done' | 'error';
 };
 
 export type TokenUsage = {
@@ -110,11 +110,21 @@ export type ProgressEvent = {
   status?: 'running' | 'done' | 'error';
 };
 
+export type ApprovalEvent = {
+  id: number;
+  type: 'approval';
+  label: 'APPROVE';
+  toolName: string;
+  toolCallId: string;
+  path?: string;
+  status: 'pending' | 'approved' | 'denied';
+};
+
 export type ToolCardEvent = EditEvent | ReadEvent | ExploreEvent | ShellEvent | TaskListEvent;
 
-export type StreamEvent = StreamTextEvent | StreamAssistantEvent | RunEvent | TokenUsageEvent | ToolCardEvent | ProgressEvent;
+export type StreamEvent = StreamTextEvent | StreamAssistantEvent | RunEvent | TokenUsageEvent | ToolCardEvent | ProgressEvent | ApprovalEvent;
 
-export type StreamStatus = 'idle' | 'streaming' | 'finished' | 'error';
+export type StreamStatus = 'idle' | 'streaming' | 'awaiting-approval' | 'finished' | 'error';
 
 export type StreamRequest = {
   id: number;

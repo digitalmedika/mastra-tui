@@ -53,6 +53,7 @@ export const deleteBg = '#b91c1c';
 export const statBg = '#475569';
 export const mkdirBg = '#15803d';
 export const usageBg = '#065f46';
+export const approveBg = '#7c2d12';
 
 const badgeBgByLabel: Record<string, string> = {
   RUN: runBg,
@@ -68,6 +69,7 @@ const badgeBgByLabel: Record<string, string> = {
   STAT: statBg,
   MKDIR: mkdirBg,
   USAGE: usageBg,
+  APPROVE: approveBg,
 };
 
 export const getBadgeBg = (label: string) => badgeBgByLabel[label] ?? purpleBg;

@@ -9,9 +9,11 @@ export function RunEventView({ event }: { event: RunEvent }) {
       ? 'Waiting for streaming response'
       : event.status === 'streaming'
         ? 'Streaming response'
-        : event.status === 'error'
-          ? 'Error'
-          : 'Done';
+        : event.status === 'awaiting-approval'
+          ? 'Waiting for approval'
+          : event.status === 'error'
+            ? 'Error'
+            : 'Done';
 
   return (
     <box style={{ width: '100%', flexDirection: 'column' }}>

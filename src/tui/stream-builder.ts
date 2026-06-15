@@ -1,8 +1,8 @@
-import type { RunEvent, StreamEvent, TokenUsageEvent, ToolCardEvent, ProgressEvent } from './types';
+import type { ApprovalEvent, RunEvent, StreamEvent, TokenUsageEvent, ToolCardEvent, ProgressEvent } from './types';
 
 type TextBlock = { id: number; type: 'text'; content: string };
 type AssistantBlock = { id: number; type: 'assistant'; content: string };
-export type StreamBlock = TextBlock | AssistantBlock | RunEvent | TokenUsageEvent | ToolCardEvent | ProgressEvent;
+export type StreamBlock = TextBlock | AssistantBlock | RunEvent | TokenUsageEvent | ToolCardEvent | ProgressEvent | ApprovalEvent;
 
 export const buildStreamBlocks = (events: StreamEvent[]) => {
   const blocks: StreamBlock[] = [];

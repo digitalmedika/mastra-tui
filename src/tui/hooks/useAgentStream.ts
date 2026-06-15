@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { RequestContext } from '@mastra/core/request-context';
 import { getCurrentModelId, openAICompatibleAgent, setModelIdAndRefresh } from '../../mastra/agents/openai-compatible-agent';
-import { agentMaxSteps, defaultSession, defaultSessionId, tuiResourceId } from '../constants';
+import {
+  allowExternalWorkspacePath,
+  allowedExternalWorkspacePathsKey,
+  getAllowedExternalWorkspacePaths,
+  isPathWithinAllowedRoots,
+  normalizeWorkspacePath,
+} from '../../workspace';
+import { agentMaxSteps, defaultSession, defaultSessionId, tuiResourceId, workspacePath } from '../constants';
 import { fetchModels, getCachedModels, initModelStore, setSelectedModelId, type CatalogModel } from '../model-store';
 import { fetchLatestBackendTokenUsageSince } from '../usage-store';
 import {
@@ -14,7 +22,7 @@ import {
   isShellTool,
   isTaskListToolName,
 } from '../event-factories';
-import type { ExploreChildEvent, ExploreEvent, RunEvent, ShellEvent, StreamEvent, StreamRequest, StreamStatus, TaskItem, TokenUsage, ToolCardEvent, ToolPayload, TuiSession } from '../types';
+import type { ApprovalEvent, ExploreChildEvent, ExploreEvent, RunEvent, ShellEvent, StreamEvent, StreamRequest, StreamStatus, TaskItem, TokenUsage, ToolCardEvent, ToolPayload, TuiSession } from '../types';
 import { estimateTokens, getSessionTitle, getStringField, getToolErrorMessage, normalizeTokenUsage } from '../utils';
 
 const extractMemoryMessageText = (content: unknown) => {
@@ -71,12 +79,26 @@ const cleanTaskText = (text: string) => text.replace(/\*\*/g, '').replace(/`/g, 
 
 const isTaskListToolNameFn = (toolName: string | undefined) => toolName === 'tui_task_list' || toolName === 'tuiTaskListTool';
 
+type ApprovalResume = (approved: boolean) => Promise<boolean>;
+
+const pathArgKeys = ['path', 'filePath', 'filepath', 'file', 'targetPath', 'target', 'directory', 'dir', 'cwd', 'basePath'];
+
+const getToolPathForApproval = (args: unknown) => {
+  const pathValue = getArgString(args, pathArgKeys);
+  if (!pathValue?.startsWith('/') && !pathValue?.startsWith('~/') && pathValue !== '~') {
+    return undefined;
+  }
+
+  return normalizeWorkspacePath(pathValue);
+};
+
 export function useAgentStream() {
   const [events, setEvents] = useState<StreamEvent[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [status, setStatus] = useState<StreamStatus>('idle');
   const [request, setRequest] = useState<StreamRequest | null>(null);
   const nextLineIdRef = useRef(0);
+  const approvalResumeRef = useRef<ApprovalResume | null>(null);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [currentSession, setCurrentSession] = useState<TuiSession>(defaultSession);
   const [sessions, setSessions] = useState<TuiSession[]>([defaultSession]);
@@ -349,6 +371,18 @@ export function useAgentStream() {
       };
     };
 
+    const createRequestContext = () => new RequestContext([
+      [allowedExternalWorkspacePathsKey, getAllowedExternalWorkspacePaths(currentSession.id)],
+    ]);
+
+    const shouldRequireToolApproval = ({ args }: { toolName?: string; args?: unknown }) => {
+      const approvalPath = getToolPathForApproval(args);
+      if (!approvalPath) return false;
+
+      const allowedRoots = [workspacePath, ...getAllowedExternalWorkspacePaths(currentSession.id)];
+      return !isPathWithinAllowedRoots(approvalPath, allowedRoots);
+    };
+
     const extractTokenUsage = (source: Record<string, unknown> | undefined) => {
       if (!source) return undefined;
 
@@ -420,6 +454,29 @@ export function useAgentStream() {
       const eventId = nextLineIdRef.current;
       nextLineIdRef.current += 1;
       setEvents((current) => [...current, { id: eventId, type: 'usage', label: 'USAGE', usage }]);
+    };
+
+    const appendApprovalEvent = (toolName: string, toolCallId: string, approvalPath: string | undefined) => {
+      activeResponseLineId = null;
+      const eventId = nextLineIdRef.current;
+      nextLineIdRef.current += 1;
+      const approvalEvent: ApprovalEvent = {
+        id: eventId,
+        type: 'approval',
+        label: 'APPROVE',
+        toolName,
+        toolCallId,
+        path: approvalPath,
+        status: 'pending',
+      };
+      setEvents((current) => [...current, approvalEvent]);
+      return approvalEvent;
+    };
+
+    const updateApprovalEvent = (eventId: number, status: ApprovalEvent['status']) => {
+      setEvents((current) =>
+        current.map((event) => (event.id === eventId && event.type === 'approval' ? { ...event, status } : event)),
+      );
     };
 
     const appendRunEvent = (prompt: string) => {
@@ -609,23 +666,224 @@ export function useAgentStream() {
       }
     };
 
+    const consumeContinuationResponse = async (
+      response: Awaited<ReturnType<typeof openAICompatibleAgent.stream>>,
+      runStartedAt: number,
+      runEventId: number,
+    ) => {
+      for await (const chunk of response.fullStream) {
+        if (cancelled) return;
+        captureTokenUsage(chunk);
+
+        if (chunk.type === 'text-delta') {
+          appendDelta(chunk.payload.text);
+        }
+
+        if (chunk.type === 'tool-call') {
+          applyTaskListTool(chunk.payload);
+          const label = getToolLabel(chunk.payload.toolName);
+          const description = describeTool(chunk.payload);
+          const lineId = appendProgressEvent(label, description);
+
+          if (chunk.payload.toolCallId) {
+            toolDescriptions.set(chunk.payload.toolCallId, description);
+            toolPayloads.set(chunk.payload.toolCallId, chunk.payload);
+            toolStartedAt.set(chunk.payload.toolCallId, Date.now());
+            activeToolLineByCallId.set(chunk.payload.toolCallId, lineId);
+          }
+
+          const exploreEvent = createExploreEvent(lineId, request.prompt, chunk.payload, undefined, Date.now(), assistantText);
+          const shellEvent = createShellEvent(lineId, chunk.payload, undefined, Date.now(), 'running');
+          const taskListEvent = createTaskListEvent(lineId, chunk.payload, undefined, 'running');
+
+          if (exploreEvent) {
+            updateRunningExploreEvents('done', lineId);
+            activeExploreEventId = lineId;
+            replaceLineWithToolEvent(lineId, exploreEvent);
+          } else if (shellEvent) {
+            replaceLineWithToolEvent(lineId, shellEvent);
+          } else if (taskListEvent) {
+            replaceLineWithToolEvent(lineId, taskListEvent);
+          }
+        }
+
+        if (chunk.type === 'tool-result') {
+          const description = (chunk.payload.toolCallId && toolDescriptions.get(chunk.payload.toolCallId)) || describeTool(chunk.payload);
+          const lineId = (chunk.payload.toolCallId && activeToolLineByCallId.get(chunk.payload.toolCallId)) || undefined;
+          const fallbackPayload = chunk.payload.toolCallId ? toolPayloads.get(chunk.payload.toolCallId) : undefined;
+          const toolName = chunk.payload.toolName ?? fallbackPayload?.toolName;
+          const isErrorResult = chunk.payload.isError === true;
+          const toolErrorMessage = getToolErrorMessage(chunk.payload, fallbackPayload);
+          const readEvent = createReadEvent(lineId ?? nextLineIdRef.current, chunk.payload, fallbackPayload);
+          const exploreEvent = createExploreEvent(
+            lineId ?? nextLineIdRef.current,
+            request.prompt,
+            chunk.payload,
+            fallbackPayload,
+            chunk.payload.toolCallId ? (toolStartedAt.get(chunk.payload.toolCallId) ?? Date.now()) : Date.now(),
+            assistantText,
+          );
+          const shellEvent = createShellEvent(
+            lineId ?? nextLineIdRef.current,
+            chunk.payload,
+            fallbackPayload,
+            chunk.payload.toolCallId ? (toolStartedAt.get(chunk.payload.toolCallId) ?? Date.now()) : Date.now(),
+            isErrorResult ? 'error' : 'done',
+          );
+          const taskListEvent = createTaskListEvent(lineId ?? nextLineIdRef.current, chunk.payload, fallbackPayload, isErrorResult ? 'error' : 'done');
+
+          if (readEvent && activeExploreEventId !== null) {
+            const child = createExploreChildEvent(readEvent.id, chunk.payload, fallbackPayload);
+            if (child) addExploreChild(activeExploreEventId, child);
+            if (lineId !== undefined) { removeProgressEvent(lineId); activeToolLineByCallId.delete(chunk.payload.toolCallId ?? ''); }
+          } else if (readEvent && lineId !== undefined) {
+            replaceLineWithToolEvent(lineId, readEvent);
+            activeToolLineByCallId.delete(chunk.payload.toolCallId ?? '');
+          } else if (readEvent) {
+            nextLineIdRef.current += 1;
+            appendToolEvent(readEvent);
+          } else if (exploreEvent && lineId !== undefined) {
+            activeExploreEventId = null;
+            replaceLineWithToolEvent(lineId, finishExploreEvent(exploreEvent, isErrorResult ? 'error' : 'done', toolErrorMessage));
+            activeToolLineByCallId.delete(chunk.payload.toolCallId ?? '');
+          } else if (exploreEvent) {
+            activeExploreEventId = null;
+            nextLineIdRef.current += 1;
+            appendToolEvent(finishExploreEvent(exploreEvent, isErrorResult ? 'error' : 'done', toolErrorMessage));
+          } else if (shellEvent && lineId !== undefined) {
+            replaceLineWithToolEvent(lineId, shellEvent);
+            activeToolLineByCallId.delete(chunk.payload.toolCallId ?? '');
+          } else if (shellEvent) {
+            nextLineIdRef.current += 1;
+            appendToolEvent(shellEvent);
+          } else if (taskListEvent && lineId !== undefined) {
+            replaceLineWithToolEvent(lineId, taskListEvent);
+            activeToolLineByCallId.delete(chunk.payload.toolCallId ?? '');
+          } else if (taskListEvent) {
+            nextLineIdRef.current += 1;
+            appendToolEvent(taskListEvent);
+          } else if (lineId !== undefined) {
+            updateProgressEvent(
+              lineId,
+              getToolLabel(toolName),
+              isErrorResult && toolErrorMessage ? `${description}: ${toolErrorMessage}` : description,
+              isErrorResult ? 'error' : 'done',
+            );
+            activeToolLineByCallId.delete(chunk.payload.toolCallId ?? '');
+          }
+        }
+
+        if (chunk.type === 'tool-error') {
+          const description = (chunk.payload.toolCallId && toolDescriptions.get(chunk.payload.toolCallId)) || describeTool(chunk.payload);
+          const lineId = (chunk.payload.toolCallId && activeToolLineByCallId.get(chunk.payload.toolCallId)) || undefined;
+          const fallbackPayload = chunk.payload.toolCallId ? toolPayloads.get(chunk.payload.toolCallId) : undefined;
+          const toolName = chunk.payload.toolName ?? fallbackPayload?.toolName;
+          const toolErrorMessage = getToolErrorMessage(chunk.payload, fallbackPayload);
+          if (lineId !== undefined) {
+            updateProgressEvent(lineId, getToolLabel(toolName), toolErrorMessage ? `${description}: ${toolErrorMessage}` : description, 'error');
+            activeToolLineByCallId.delete(chunk.payload.toolCallId ?? '');
+          }
+        }
+      }
+
+      if (cancelled) return;
+      const responseUsage = await Promise.allSettled([response.usage, response.providerMetadata]).then(
+        ([usageResult, metadataResult]) =>
+          normalizeTokenUsage(
+            usageResult.status === 'fulfilled' ? usageResult.value : undefined,
+            metadataResult.status === 'fulfilled' ? metadataResult.value : undefined,
+          ),
+      );
+      finalTokenUsage = mergeTokenUsage(finalTokenUsage, responseUsage);
+      updateRunningExploreEvents('done');
+      activeExploreEventId = null;
+      updateRunEvent(runEventId, 'done');
+
+      const backendUsage = await fetchLatestBackendTokenUsageSince(runStartedAt);
+      const usageToDisplay =
+        hasVisibleTokenUsage(backendUsage) ? backendUsage :
+        hasVisibleTokenUsage(finalTokenUsage) ? finalTokenUsage :
+        buildEstimatedTokenUsage();
+      if (usageToDisplay) {
+        appendTokenUsageEvent(usageToDisplay);
+      }
+
+      setStatus('finished');
+      void refreshSessions();
+    };
+
     // ----- main stream loop -----
 
     const run = async () => {
       if (request.id > 0) appendLine('');
       const runStartedAt = Date.now();
       const runEventId = appendRunEvent(request.prompt);
+      const requestContext = new RequestContext([
+        [allowedExternalWorkspacePathsKey, getAllowedExternalWorkspacePaths(currentSession.id)],
+      ]);
 
       try {
         const response = await openAICompatibleAgent.stream(request.prompt, {
           maxSteps: agentMaxSteps,
           memory: { resource: tuiResourceId, thread: currentSession.id },
+          requestContext,
+          requireToolApproval: shouldRequireToolApproval,
         });
         updateRunEvent(runEventId, 'streaming');
 
         for await (const chunk of response.fullStream) {
           if (cancelled) return;
           captureTokenUsage(chunk);
+
+          if (chunk.type === 'tool-call-approval') {
+            const approvalPath = getToolPathForApproval(chunk.payload.args);
+            const approvalEvent = appendApprovalEvent(chunk.payload.toolName, chunk.payload.toolCallId, approvalPath);
+            setStatus('awaiting-approval');
+            updateRunEvent(runEventId, 'awaiting-approval');
+            approvalResumeRef.current = async (approved: boolean) => {
+              approvalResumeRef.current = null;
+              updateApprovalEvent(approvalEvent.id, approved ? 'approved' : 'denied');
+              setStatus('streaming');
+              updateRunEvent(runEventId, 'streaming');
+
+              try {
+                if (approved && approvalPath) {
+                  allowExternalWorkspacePath(currentSession.id, approvalPath);
+                }
+
+                const resumeContext = createRequestContext();
+                const resumedResponse = approved
+                  ? await openAICompatibleAgent.approveToolCall({
+                    runId: response.runId,
+                    toolCallId: chunk.payload.toolCallId,
+                    maxSteps: agentMaxSteps,
+                    memory: { resource: tuiResourceId, thread: currentSession.id },
+                    requestContext: resumeContext,
+                    requireToolApproval: shouldRequireToolApproval,
+                  })
+                  : await openAICompatibleAgent.declineToolCall({
+                    runId: response.runId,
+                    toolCallId: chunk.payload.toolCallId,
+                    maxSteps: agentMaxSteps,
+                    memory: { resource: tuiResourceId, thread: currentSession.id },
+                    requestContext: resumeContext,
+                    requireToolApproval: shouldRequireToolApproval,
+                  });
+
+                await consumeContinuationResponse(resumedResponse, runStartedAt, runEventId);
+                return true;
+              } catch (error) {
+                updateRunningExploreEvents('error');
+                activeExploreEventId = null;
+                updateRunEvent(runEventId, 'error');
+                appendLine(`error: ${error instanceof Error ? error.message : String(error)}`);
+                setStatus('error');
+                void refreshSessions();
+                return false;
+              }
+            };
+            return;
+          }
 
           if (chunk.type === 'text-delta') {
             appendDelta(chunk.payload.text);
@@ -856,10 +1114,42 @@ export function useAgentStream() {
 
   const submitPrompt = useCallback((nextPrompt: string) => {
     const trimmedPrompt = nextPrompt.trim();
-    if (!trimmedPrompt || status === 'streaming') return false;
+    if (!trimmedPrompt || status === 'streaming' || status === 'awaiting-approval') return false;
     setRequest((current) => ({ id: (current?.id ?? -1) + 1, prompt: trimmedPrompt }));
     return true;
   }, [status]);
+
+  const respondToApproval = useCallback(async (approved: boolean) => {
+    if (status !== 'awaiting-approval' || !approvalResumeRef.current) return false;
+    return approvalResumeRef.current(approved);
+  }, [status]);
+
+  const appendSystemLine = useCallback((text: string) => {
+    const lineId = nextLineIdRef.current;
+    nextLineIdRef.current += 1;
+    setEvents((current) => [...current, { id: lineId, type: 'text', text }]);
+  }, []);
+
+  const allowExternalPath = useCallback((inputPath: string) => {
+    const trimmedPath = inputPath.trim();
+    if (!trimmedPath || status === 'streaming' || status === 'awaiting-approval') return false;
+
+    const allowedPath = allowExternalWorkspacePath(currentSession.id, trimmedPath);
+    appendSystemLine(`Allowed external path for this session: ${allowedPath}`);
+    return true;
+  }, [appendSystemLine, currentSession.id, status]);
+
+  const showAllowedExternalPaths = useCallback(() => {
+    if (status === 'streaming' || status === 'awaiting-approval') return false;
+
+    const allowedPaths = getAllowedExternalWorkspacePaths(currentSession.id);
+    appendSystemLine(
+      allowedPaths.length > 0
+        ? `Allowed external paths for this session:\n${allowedPaths.map((item) => `- ${item}`).join('\n')}`
+        : 'No external paths allowed for this session yet. Use /allow <path> to add one.',
+    );
+    return true;
+  }, [appendSystemLine, currentSession.id, status]);
 
   const clearMemory = useCallback(async () => {
     try {
@@ -870,12 +1160,13 @@ export function useAgentStream() {
     setTasks([]);
     setStatus('idle');
     setRequest(null);
+    approvalResumeRef.current = null;
     nextLineIdRef.current = 0;
     void refreshSessions();
   }, [currentSession.id, refreshSessions]);
 
   const createSession = useCallback(async (title?: string) => {
-    if (status === 'streaming') return false;
+    if (status === 'streaming' || status === 'awaiting-approval') return false;
     try {
       const memory = await openAICompatibleAgent.getMemory();
       if (!memory) return false;
@@ -902,7 +1193,7 @@ export function useAgentStream() {
   }, [status]);
 
   const openSessionPicker = useCallback(async () => {
-    if (status === 'streaming') return false;
+    if (status === 'streaming' || status === 'awaiting-approval') return false;
     await refreshSessions();
     setSessionPickerOpen(true);
     return true;
@@ -910,7 +1201,7 @@ export function useAgentStream() {
 
   const closeSessionPicker = useCallback(() => { setSessionPickerOpen(false); }, []);
   const selectSession = useCallback(async (sessionId: string) => {
-    if (status === 'streaming') return false;
+    if (status === 'streaming' || status === 'awaiting-approval') return false;
     const session = sessions.find((item) => item.id === sessionId) ?? { id: sessionId };
     setSessionPickerOpen(false);
     setCurrentSession(session);
@@ -924,7 +1215,7 @@ export function useAgentStream() {
   }, []);
 
   const openModelPicker = useCallback(async () => {
-    if (status === 'streaming') return false;
+    if (status === 'streaming' || status === 'awaiting-approval') return false;
     await refreshModels();
     setModelPickerOpen(true);
     return true;
@@ -933,7 +1224,7 @@ export function useAgentStream() {
   const closeModelPicker = useCallback(() => { setModelPickerOpen(false); }, []);
 
   const selectModel = useCallback(async (modelPublicId: string) => {
-    if (status === 'streaming') return false;
+    if (status === 'streaming' || status === 'awaiting-approval') return false;
     const model = models.find((m) => m.publicModelId === modelPublicId);
     if (!model) return false;
     const changed = setModelIdAndRefresh(model.publicModelId);
@@ -947,7 +1238,7 @@ export function useAgentStream() {
 
   return {
     events, tasks, status, currentSession, sessions, sessionPickerOpen,
-    submitPrompt, clearMemory, createSession, openSessionPicker, closeSessionPicker, selectSession,
+    submitPrompt, respondToApproval, allowExternalPath, showAllowedExternalPaths, clearMemory, createSession, openSessionPicker, closeSessionPicker, selectSession,
     models, selectedModelId, modelPickerOpen, modelsLoaded,
     refreshModels, openModelPicker, closeModelPicker, selectModel,
   };

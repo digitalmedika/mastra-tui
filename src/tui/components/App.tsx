@@ -21,6 +21,9 @@ export function App({ onExit }: { onExit: () => void }) {
     sessions,
     sessionPickerOpen,
     submitPrompt,
+    respondToApproval,
+    allowExternalPath,
+    showAllowedExternalPaths,
     clearMemory,
     createSession,
     openSessionPicker,
@@ -105,27 +108,53 @@ export function App({ onExit }: { onExit: () => void }) {
     if (typeof value !== 'string') return;
 
     const trimmedValue = value.trim();
+    const canStartAction = status !== 'streaming' && status !== 'awaiting-approval';
 
-    if (trimmedValue === '/clear' && status !== 'streaming') {
+    if (trimmedValue === '/approve' && status === 'awaiting-approval') {
+      setInputValue('');
+      void respondToApproval(true);
+      return;
+    }
+
+    if ((trimmedValue === '/deny' || trimmedValue === '/reject') && status === 'awaiting-approval') {
+      setInputValue('');
+      void respondToApproval(false);
+      return;
+    }
+
+    if (trimmedValue === '/clear' && canStartAction) {
       setInputValue('');
       void clearMemory();
       return;
     }
 
-    if (trimmedValue === '/sessions' && status !== 'streaming') {
+    if (trimmedValue === '/sessions' && canStartAction) {
       setInputValue('');
       void openSessionPicker();
       return;
     }
 
-    if (trimmedValue === '/model' && status !== 'streaming') {
+    if (trimmedValue === '/model' && canStartAction) {
       setInputValue('');
       void openModelPicker();
       return;
     }
 
+    if (trimmedValue === '/allow' && canStartAction) {
+      setInputValue('');
+      showAllowedExternalPaths();
+      return;
+    }
+
+    if (trimmedValue.startsWith('/allow ') && canStartAction) {
+      const targetPath = trimmedValue.slice('/allow'.length).trim();
+      setInputValue('');
+      allowExternalPath(targetPath);
+      return;
+    }
+
     if (trimmedValue === '/new' || trimmedValue.startsWith('/new ')) {
-      if (status !== 'streaming') {
+      if (canStartAction) {
         const title = trimmedValue.slice('/new'.length).trim();
         setInputValue('');
         void createSession(title || undefined);
@@ -269,7 +298,13 @@ export function App({ onExit }: { onExit: () => void }) {
         <input
           focused={!anyPickerOpen}
           value={inputValue}
-          placeholder={status === 'streaming' ? 'Wait for streaming to finish...' : 'Ask your question...'}
+          placeholder={
+            status === 'awaiting-approval'
+              ? 'Type /approve to continue or /deny to reject...'
+              : status === 'streaming'
+                ? 'Wait for streaming to finish...'
+                : 'Ask your question...'
+          }
           onInput={setInputValue}
           onSubmit={handleSubmit}
           style={{

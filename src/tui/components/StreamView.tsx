@@ -9,6 +9,7 @@ import { TaskListEventView } from './TaskListEventView';
 import { EditEventView } from './EditEventView';
 import { ProgressEventView } from './ProgressEventView';
 import { TokenUsageEventView } from './TokenUsageEventView';
+import { ApprovalEventView } from './ApprovalEventView';
 import { markdownSyntaxStyle, treeSitterClient } from '../constants';
 
 export function StreamView({ events, status }: { events: StreamEvent[]; status: StreamStatus }) {
@@ -40,6 +41,8 @@ export function StreamView({ events, status }: { events: StreamEvent[]; status: 
           <TokenUsageEventView key={block.id} event={block} />
         ) : block.type === 'progress' ? (
           <ProgressEventView key={block.id} event={block} />
+        ) : block.type === 'approval' ? (
+          <ApprovalEventView key={block.id} event={block} />
         ) : block.type === 'read' ? (
           <ReadEventView key={block.id} event={block} />
         ) : block.type === 'explore' ? (

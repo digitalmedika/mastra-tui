@@ -1,5 +1,7 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import type { RequestContext } from '@mastra/core/request-context';
 
 export function findProjectRoot(startDir: string = process.cwd()): string {
   let dir = startDir;
@@ -19,3 +21,55 @@ export function findProjectRoot(startDir: string = process.cwd()): string {
 }
 
 export const defaultWorkspacePath = process.env.VIBE_CODING_WORKSPACE_PATH?.trim() || findProjectRoot();
+
+export const allowedExternalWorkspacePathsKey = 'mastra-tui.allowedExternalWorkspacePaths';
+
+const allowedPathsBySession = new Map<string, Set<string>>();
+
+const expandHomePath = (inputPath: string) => {
+  if (inputPath === '~') {
+    return os.homedir();
+  }
+
+  if (inputPath.startsWith('~/')) {
+    return path.join(os.homedir(), inputPath.slice(2));
+  }
+
+  return inputPath;
+};
+
+export const normalizeWorkspacePath = (inputPath: string) => {
+  return path.resolve(expandHomePath(inputPath.trim()));
+};
+
+export function isPathWithinRoot(inputPath: string, rootPath: string): boolean {
+  const normalizedPath = normalizeWorkspacePath(inputPath);
+  const normalizedRoot = normalizeWorkspacePath(rootPath);
+  const relativePath = path.relative(normalizedRoot, normalizedPath);
+  return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
+}
+
+export function isPathWithinAllowedRoots(inputPath: string, rootPaths: string[]): boolean {
+  return rootPaths.some((rootPath) => isPathWithinRoot(inputPath, rootPath));
+}
+
+export function allowExternalWorkspacePath(sessionId: string, inputPath: string): string {
+  const normalized = normalizeWorkspacePath(inputPath);
+  const allowedPaths = allowedPathsBySession.get(sessionId) ?? new Set<string>();
+  allowedPaths.add(normalized);
+  allowedPathsBySession.set(sessionId, allowedPaths);
+  return normalized;
+}
+
+export function getAllowedExternalWorkspacePaths(sessionId: string): string[] {
+  return [...(allowedPathsBySession.get(sessionId) ?? [])];
+}
+
+export function getRequestAllowedExternalWorkspacePaths(requestContext: RequestContext | undefined): string[] {
+  if (!requestContext) {
+    return [];
+  }
+
+  const allowedPaths = requestContext.get<typeof allowedExternalWorkspacePathsKey, string[]>(allowedExternalWorkspacePathsKey);
+  return Array.isArray(allowedPaths) ? allowedPaths.filter((item) => typeof item === 'string' && item.trim()) : [];
+}

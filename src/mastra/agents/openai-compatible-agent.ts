@@ -5,7 +5,7 @@ import { LocalFilesystem, LocalSandbox, Workspace } from '@mastra/core/workspace
 import { LibSQLStore } from '@mastra/libsql';
 import { Memory } from '@mastra/memory';
 import { getStoredSession } from '../../tui/auth/storage';
-import { defaultWorkspacePath, findProjectRoot } from '../../workspace';
+import { defaultWorkspacePath, findProjectRoot, getRequestAllowedExternalWorkspacePaths } from '../../workspace';
 import { tuiTaskListTool } from '../tools/tui-task-list-tool';
 
 const projectRoot = findProjectRoot();
@@ -38,8 +38,9 @@ function buildModelConfig(): OpenAICompatibleConfig {
 const vibeCodingWorkspace = new Workspace({
   id: 'vibe-coding-workspace',
   name: 'Vibe Coding Workspace',
-  filesystem: new LocalFilesystem({
+  filesystem: ({ requestContext }) => new LocalFilesystem({
     basePath: workspacePath,
+    allowedPaths: getRequestAllowedExternalWorkspacePaths(requestContext),
   }),
   sandbox: new LocalSandbox({
     workingDirectory: workspacePath,
@@ -60,6 +61,7 @@ When responding:
 - Point out likely bugs, edge cases, and missing requirements before they become expensive
 - Match the user's language and tone when possible
 - Be honest about what you can inspect or change, and do not claim access to tools or systems that are not available
+- Workspace file tools are contained. If a requested absolute path is outside the current workspace and access is denied, tell the user to run /allow <path> once for the current TUI session, then retry.
 
 CRITICAL: When editing files:
 - Use mastra_workspace_edit_file with exact old_string and new_string values; do not pass a unified diff or patch text
