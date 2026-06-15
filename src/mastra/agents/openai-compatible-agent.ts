@@ -28,7 +28,7 @@ const modelId = process.env.OPENAI_COMPATIBLE_MODEL ?? 'gpt-4o-mini';
 const baseUrl = process.env.OPENAI_COMPATIBLE_BASE_URL ?? 'https://api.openai.com/v1';
 const apiKey = process.env.OPENAI_COMPATIBLE_API_KEY ?? process.env.OPENAI_API_KEY ?? '';
 const workspacePath = process.env.VIBE_CODING_WORKSPACE_PATH ?? '/Users/billymontolalu/Documents/project/central';
-const memoryUrl = process.env.OPENAI_COMPATIBLE_MEMORY_URL ?? `file:${path.join(projectRoot, '.mastra/openai-compatible-agent-memory.db')}`;
+const memoryUrl = process.env.OPENAI_COMPATIBLE_MEMORY_URL ?? `file:${path.join(projectRoot, '.mastra', 'openai-compatible-agent-memory.db').replace(/\\/g, '/')}`;
 
 const openAICompatibleModel: OpenAICompatibleConfig = {
   providerId,
