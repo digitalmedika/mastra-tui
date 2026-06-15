@@ -134,7 +134,7 @@ const redBg = '#4a1d24';
 const exploreBg = '#7547ff';
 const branchFg = '#9aa3b8';
 const shellBg = '#2374ab';
-const taskBg = '#2c8f5b';
+const taskBg = '#6b4dff';
 const runBg = '#6d5dfc';
 const assistantMarkerFg = '#c8a7ff';
 const tuiResourceId = 'tui-user';
@@ -2163,6 +2163,7 @@ function App({ onExit }: { onExit: () => void }) {
         {status === 'streaming' ? <StreamingIndicator /> : <text content="  " />}
         <text content={visibleFooterState.text} style={{ fg: mutedFg }} />
       </box>
+      <text content={'─'.repeat(terminalWidth)} style={{ fg: mutedFg }} />
       <box style={{ width: '100%', flexDirection: 'row', flexShrink: 0 }}>
         <text content="> " style={{ fg: assistantMarkerFg }} />
         <input
@@ -2174,6 +2175,7 @@ function App({ onExit }: { onExit: () => void }) {
           style={{ flexGrow: 1 }}
         />
       </box>
+      <text content={'─'.repeat(terminalWidth)} style={{ fg: mutedFg }} />
     </box>
   );
 }
