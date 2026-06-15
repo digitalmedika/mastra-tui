@@ -194,7 +194,7 @@ export function useAgentStream() {
     const activeToolLines = new Map<number, string>();
     const activeToolLineByCallId = new Map<string, number>();
     const pendingToolLineByName = new Map<string, number>();
-    const spinnerFrames = ['[.  ]', '[.. ]', '[...]'];
+    const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
     let spinnerFrameIndex = 0;
     let activeExploreEventId: number | null = null;
 
@@ -376,12 +376,13 @@ export function useAgentStream() {
     };
 
     const spinnerInterval = setInterval(() => {
-      if (activeToolLines.size === 0) return;
-
       spinnerFrameIndex = (spinnerFrameIndex + 1) % spinnerFrames.length;
+      
+      const hasActiveTools = activeToolLines.size > 0;
+      
       setEvents((current) =>
         current.map((event) => {
-          if (event.type === 'explore' && event.status === 'running') {
+          if (event.type === 'explore' && event.status === 'running' && hasActiveTools) {
             const chars = [request.prompt, assistantText].reduce((t, p) => t + p.length, 0);
             return {
               ...event,
@@ -389,7 +390,7 @@ export function useAgentStream() {
               tokenEstimate: Math.max(1, Math.round(chars / 4)),
             };
           }
-          if (event.type === 'shell' && event.status === 'running') {
+          if (event.type === 'shell' && event.status === 'running' && hasActiveTools) {
             return { ...event, elapsedSeconds: Math.max(0, Math.round((Date.now() - event.startedAt) / 1000)) };
           }
           if (event.type !== 'text') return event;
@@ -526,9 +527,7 @@ export function useAgentStream() {
           }
 
           if (chunk.type === 'tool-call-input-streaming-start') {
-            const description = isTaskListToolNameFn(chunk.payload.toolName)
-              ? 'menyiapkan checklist'
-              : `menyiapkan argumen ${chunk.payload.toolName ?? 'unknown'}`;
+            const description = 'memproses';
             const lineId = startProgressLine(description);
             if (chunk.payload.toolName) pendingToolLineByName.set(chunk.payload.toolName, lineId);
           }
@@ -571,11 +570,11 @@ export function useAgentStream() {
               nextLineIdRef.current += 1;
               appendToolEvent(readEvent);
             } else if (exploreEvent && lineId !== undefined) {
-              activeExploreEventId = lineId;
+              activeExploreEventId = null;
               replaceLineWithToolEvent(lineId, exploreEvent);
               activeToolLineByCallId.delete(chunk.payload.toolCallId ?? '');
             } else if (exploreEvent) {
-              activeExploreEventId = exploreEvent.id;
+              activeExploreEventId = null;
               nextLineIdRef.current += 1;
               appendToolEvent(exploreEvent);
             } else if (shellEvent && lineId !== undefined) {
