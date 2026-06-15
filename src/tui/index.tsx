@@ -1712,6 +1712,25 @@ function Badge({ label, bg = purpleBg }: { label: string; bg?: string }) {
   );
 }
 
+function StreamingIndicator() {
+  const [frame, setFrame] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setFrame((prev) => (prev + 1) % SPINNER_FRAMES.length);
+    }, 80);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <text
+      content={` ${SPINNER_FRAMES[frame]} `}
+      style={{ fg: '#00d9ff', attributes: TextAttributes.BOLD }}
+    />
+  );
+}
+
 function TaskListPanel({
   tasks,
   sidePanel,
@@ -2141,7 +2160,7 @@ function App({ onExit }: { onExit: () => void }) {
       </box>
       <box style={{ width: '100%', flexDirection: 'row', flexShrink: 0 }}>
         <Badge label={visibleFooterState.label} bg={visibleFooterState.bg} />
-        <text content="  " />
+        {status === 'streaming' ? <StreamingIndicator /> : <text content="  " />}
         <text content={visibleFooterState.text} style={{ fg: mutedFg }} />
       </box>
       <box style={{ width: '100%', flexDirection: 'row', flexShrink: 0 }}>
