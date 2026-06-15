@@ -233,6 +233,38 @@ const getResultText = (result: unknown): string | undefined => {
   return getStringField(result, ['content', 'text', 'output', 'data', 'result']);
 };
 
+const extractMemoryMessageText = (content: unknown) => {
+  if (typeof content === 'string') {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .filter((part) => isRecord(part) && part.type === 'text' && typeof part.text === 'string')
+      .map((part) => (part as { text: string }).text)
+      .join('\n');
+  }
+
+  if (!isRecord(content)) {
+    return '';
+  }
+
+  const directText = getStringField(content, ['content', 'text']);
+  if (directText) {
+    return directText;
+  }
+
+  const parts = content.parts;
+  if (!Array.isArray(parts)) {
+    return '';
+  }
+
+  return parts
+    .filter((part) => isRecord(part) && part.type === 'text' && typeof part.text === 'string')
+    .map((part) => (part as { text: string }).text)
+    .join('\n');
+};
+
 const findStartLine = (filePath: string, needle: string | undefined) => {
   if (!needle) {
     return undefined;
@@ -359,8 +391,8 @@ const createUnifiedDiff = (filePath: string, lines: EditPreviewLine[], additions
   const newVisibleLength = lines.filter((line) => line.marker !== '-').length;
   const isAddOnlyHunk = oldVisibleLength === 0 && newVisibleLength > 0 && removals === 0;
   const oldStart = isAddOnlyHunk ? 0 : firstLineNumber;
-  const oldLength = isAddOnlyHunk ? 0 : Math.max(1, oldVisibleLength || removals);
-  const newLength = Math.max(1, newVisibleLength || additions);
+  const oldLength = isAddOnlyHunk ? 0 : oldVisibleLength;
+  const newLength = newVisibleLength;
   const body = lines.map((line) => `${line.marker}${line.text}`).join('\n');
 
   return [
@@ -369,7 +401,6 @@ const createUnifiedDiff = (filePath: string, lines: EditPreviewLine[], additions
     `+++ b/${filePath}`,
     `@@ -${oldStart},${oldLength} +${firstLineNumber},${newLength} @@`,
     body,
-    '',
   ].join('\n');
 };
 
@@ -646,8 +677,94 @@ function useAgentStream() {
   const [status, setStatus] = useState<StreamStatus>('idle');
   const [request, setRequest] = useState<StreamRequest | null>(null);
   const nextLineIdRef = useRef(0);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+
+  // Load chat history on mount
+  useEffect(() => {
+    const loadHistory = async () => {
+      try {
+        console.log('[History] Starting to load chat history...');
+        const memory = await openAICompatibleAgent.getMemory();
+        if (!memory) {
+          console.log('[History] No memory instance found');
+          setHistoryLoaded(true);
+          return;
+        }
+
+        console.log('[History] Fetching messages from memory...');
+        const result = await memory.recall({
+          threadId: 'tui-session',
+          resourceId: 'tui-user',
+          perPage: false,
+        });
+
+        console.log('[History] Recall result:', {
+          total: result?.total,
+          messageCount: result?.messages?.length,
+        });
+
+        if (!result || !result.messages || result.messages.length === 0) {
+          console.log('[History] No messages found in history');
+          setHistoryLoaded(true);
+          return;
+        }
+
+        // Convert memory messages to events
+        const historyEvents: StreamEvent[] = [];
+        let lineId = 0;
+
+        console.log('[History] Processing', result.messages.length, 'messages');
+
+        for (const msg of result.messages) {
+          const textContent = extractMemoryMessageText(msg.content);
+
+          if (!textContent.trim()) {
+            console.log('[History] Skipping empty message');
+            continue;
+          }
+
+          if (msg.role === 'user') {
+            historyEvents.push({
+              id: lineId++,
+              type: 'text',
+              text: `> ${textContent}`,
+            });
+          } else if (msg.role === 'assistant') {
+            historyEvents.push({
+              id: lineId++,
+              type: 'assistant',
+              text: textContent,
+            });
+          }
+        }
+
+        if (historyEvents.length > 0) {
+          console.log('[History] Loaded', historyEvents.length, 'history events');
+          historyEvents.unshift({
+            id: lineId++,
+            type: 'text',
+            text: '📜 Chat history dimuat dari sesi sebelumnya\n',
+          });
+          setEvents(historyEvents);
+          nextLineIdRef.current = lineId;
+        } else {
+          console.log('[History] No valid history events to display');
+        }
+
+        setHistoryLoaded(true);
+      } catch (error) {
+        console.error('[History] Failed to load history:', error);
+        setHistoryLoaded(true);
+      }
+    };
+
+    void loadHistory();
+  }, []);
 
   useEffect(() => {
+    if (!historyLoaded) {
+      return;
+    }
     if (!request) {
       return;
     }

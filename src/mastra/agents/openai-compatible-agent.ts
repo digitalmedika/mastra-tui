@@ -64,7 +64,14 @@ When responding:
 - Write clear code with maintainable structure and practical naming
 - Point out likely bugs, edge cases, and missing requirements before they become expensive
 - Match the user's language and tone when possible
-- Be honest about what you can inspect or change, and do not claim access to tools or systems that are not available`,
+- Be honest about what you can inspect or change, and do not claim access to tools or systems that are not available
+
+CRITICAL: When editing files:
+- Use mastra_workspace_edit_file with exact old_string and new_string values; do not pass a unified diff or patch text
+- old_string must match the current file contents exactly, including indentation, whitespace, and blank lines
+- new_string must be the complete replacement for old_string, not only the changed lines
+- If the same old_string appears more than once, set replace_all only when every occurrence should change; otherwise choose a larger unique old_string
+- Use mastra_workspace_write_file only when creating or replacing a whole file intentionally`,
   model: openAICompatibleModel,
   tools: { tuiTaskListTool },
   workspace: vibeCodingWorkspace,
