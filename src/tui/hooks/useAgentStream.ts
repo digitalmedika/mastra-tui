@@ -15,7 +15,7 @@ import {
   isTaskListToolName,
 } from '../event-factories';
 import type { ExploreChildEvent, ExploreEvent, RunEvent, ShellEvent, StreamEvent, StreamRequest, StreamStatus, TaskItem, TokenUsage, ToolCardEvent, ToolPayload, TuiSession } from '../types';
-import { estimateTokens, getSessionTitle, getStringField, normalizeTokenUsage } from '../utils';
+import { estimateTokens, getSessionTitle, getStringField, getToolErrorMessage, normalizeTokenUsage } from '../utils';
 
 const extractMemoryMessageText = (content: unknown) => {
   if (typeof content === 'string') return content;
@@ -460,7 +460,11 @@ export function useAgentStream() {
       };
     };
 
-    const updateRunningExploreEvents = (status?: ExploreEvent['status'], exceptEventId?: number) => {
+    const updateRunningExploreEvents = (
+      status?: ExploreEvent['status'],
+      exceptEventId?: number,
+      errorMessage?: string,
+    ) => {
       setEvents((current) =>
         current.map((event) => {
           if (event.type !== 'explore' || event.status !== 'running') return event;
@@ -469,15 +473,21 @@ export function useAgentStream() {
             ...event,
             status: status ?? event.status,
             ...getExploreRuntime(event.startedAt),
+            errorMessage: status === 'error' ? errorMessage ?? event.errorMessage : undefined,
           };
         }),
       );
     };
 
-    const finishExploreEvent = (event: ExploreEvent, status: ExploreEvent['status'] = 'done'): ExploreEvent => ({
+    const finishExploreEvent = (
+      event: ExploreEvent,
+      status: ExploreEvent['status'] = 'done',
+      errorMessage?: string,
+    ): ExploreEvent => ({
       ...event,
       status,
       ...getExploreRuntime(event.startedAt),
+      errorMessage: status === 'error' ? errorMessage ?? event.errorMessage : undefined,
     });
 
     const appendProgressEvent = (label: string, description: string) => {
@@ -675,6 +685,8 @@ export function useAgentStream() {
             const lineId = (chunk.payload.toolCallId && activeToolLineByCallId.get(chunk.payload.toolCallId)) || undefined;
             const fallbackPayload = chunk.payload.toolCallId ? toolPayloads.get(chunk.payload.toolCallId) : undefined;
             const toolName = chunk.payload.toolName ?? fallbackPayload?.toolName;
+            const isErrorResult = chunk.payload.isError === true;
+            const toolErrorMessage = getToolErrorMessage(chunk.payload, fallbackPayload);
             const editEvent = createEditEvent(lineId ?? nextLineIdRef.current, chunk.payload, fallbackPayload);
             const readEvent = createReadEvent(lineId ?? nextLineIdRef.current, chunk.payload, fallbackPayload);
             const exploreEvent = createExploreEvent(
@@ -709,30 +721,44 @@ export function useAgentStream() {
               appendToolEvent(readEvent);
             } else if (exploreEvent && lineId !== undefined) {
               activeExploreEventId = null;
-              replaceLineWithToolEvent(lineId, finishExploreEvent(exploreEvent));
+              replaceLineWithToolEvent(
+                lineId,
+                finishExploreEvent(exploreEvent, isErrorResult ? 'error' : 'done', toolErrorMessage),
+              );
               activeToolLineByCallId.delete(chunk.payload.toolCallId ?? '');
             } else if (exploreEvent) {
               activeExploreEventId = null;
               nextLineIdRef.current += 1;
-              appendToolEvent(finishExploreEvent(exploreEvent));
+              appendToolEvent(finishExploreEvent(exploreEvent, isErrorResult ? 'error' : 'done', toolErrorMessage));
             } else if (shellEvent && lineId !== undefined) {
-              replaceLineWithToolEvent(lineId, shellEvent);
+              replaceLineWithToolEvent(
+                lineId,
+                isErrorResult ? { ...shellEvent, status: 'error' } : shellEvent,
+              );
               activeToolLineByCallId.delete(chunk.payload.toolCallId ?? '');
             } else if (shellEvent) {
               nextLineIdRef.current += 1;
-              appendToolEvent(shellEvent);
+              appendToolEvent(isErrorResult ? { ...shellEvent, status: 'error' } : shellEvent);
             } else if (taskListEvent && lineId !== undefined) {
-              replaceLineWithToolEvent(lineId, taskListEvent);
+              replaceLineWithToolEvent(
+                lineId,
+                isErrorResult ? { ...taskListEvent, status: 'error' } : taskListEvent,
+              );
               activeToolLineByCallId.delete(chunk.payload.toolCallId ?? '');
             } else if (taskListEvent) {
               nextLineIdRef.current += 1;
-              appendToolEvent(taskListEvent);
+              appendToolEvent(isErrorResult ? { ...taskListEvent, status: 'error' } : taskListEvent);
             } else if (activeExploreEventId !== null && isExploreTool(toolName)) {
               const child = createExploreChildEvent(lineId ?? nextLineIdRef.current, chunk.payload, fallbackPayload);
               if (child) addExploreChild(activeExploreEventId, child);
               if (lineId !== undefined) { removeProgressEvent(lineId); activeToolLineByCallId.delete(chunk.payload.toolCallId ?? ''); }
             } else if (lineId !== undefined) {
-              updateProgressEvent(lineId, getToolLabel(toolName), description, 'done');
+              updateProgressEvent(
+                lineId,
+                getToolLabel(toolName),
+                isErrorResult && toolErrorMessage ? `${description}: ${toolErrorMessage}` : description,
+                isErrorResult ? 'error' : 'done',
+              );
               activeToolLineByCallId.delete(chunk.payload.toolCallId ?? '');
             }
           }
@@ -742,8 +768,9 @@ export function useAgentStream() {
             const lineId = (chunk.payload.toolCallId && activeToolLineByCallId.get(chunk.payload.toolCallId)) || undefined;
             const fallbackPayload = chunk.payload.toolCallId ? toolPayloads.get(chunk.payload.toolCallId) : undefined;
             const toolName = chunk.payload.toolName ?? fallbackPayload?.toolName;
+            const toolErrorMessage = getToolErrorMessage(chunk.payload, fallbackPayload);
 
-            if (isExploreTool(toolName)) { updateRunningExploreEvents('error'); activeExploreEventId = null; }
+            if (isExploreTool(toolName)) { updateRunningExploreEvents('error', undefined, toolErrorMessage); activeExploreEventId = null; }
 
             const shellEvent = createShellEvent(
               lineId ?? nextLineIdRef.current, chunk.payload, fallbackPayload,
@@ -765,11 +792,21 @@ export function useAgentStream() {
               nextLineIdRef.current += 1;
               appendToolEvent(taskListEvent);
             } else if (lineId !== undefined) {
-              updateProgressEvent(lineId, getToolLabel(toolName), description, 'error');
+              updateProgressEvent(
+                lineId,
+                getToolLabel(toolName),
+                toolErrorMessage ? `${description}: ${toolErrorMessage}` : description,
+                'error',
+              );
               activeToolLineByCallId.delete(chunk.payload.toolCallId ?? '');
             } else {
               appendProgressEvent(getToolLabel(toolName), description);
-              updateProgressEvent(nextLineIdRef.current - 1, getToolLabel(toolName), description, 'error');
+              updateProgressEvent(
+                nextLineIdRef.current - 1,
+                getToolLabel(toolName),
+                toolErrorMessage ? `${description}: ${toolErrorMessage}` : description,
+                'error',
+              );
             }
           }
         }

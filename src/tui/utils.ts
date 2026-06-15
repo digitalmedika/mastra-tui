@@ -249,6 +249,40 @@ export const getResultText = (result: unknown): string | undefined => {
   return getStringField(result, ['content', 'text', 'output', 'data', 'result']);
 };
 
+const extractErrorText = (value: unknown): string | undefined => {
+  if (typeof value === 'string' && value.trim()) {
+    return value.trim();
+  }
+
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const direct = getStringField(value, ['message', 'error', 'detail', 'details', 'description']);
+  if (direct) {
+    return direct;
+  }
+
+  const nested = extractErrorText(value.error) ?? extractErrorText(value.cause) ?? extractErrorText(value.result);
+  if (nested) {
+    return nested;
+  }
+
+  const name = getStringField(value, ['name', 'code']);
+  return name ? name.trim() : undefined;
+};
+
+export const getToolErrorMessage = (payload: ToolPayload, fallbackPayload?: ToolPayload) => {
+  return (
+    extractErrorText(payload.error) ??
+    extractErrorText(payload.result) ??
+    extractErrorText(payload) ??
+    extractErrorText(fallbackPayload?.error) ??
+    extractErrorText(fallbackPayload?.result) ??
+    extractErrorText(fallbackPayload)
+  );
+};
+
 export const clampPreviewLines = (lines: EditPreviewLine[], maxVisibleLines = 9) => {
   if (lines.length <= maxVisibleLines) {
     return { visibleLines: lines, hiddenLines: 0 };

@@ -1,6 +1,6 @@
 import { Badge } from './Badge';
 import type { TokenUsageEvent } from '../types';
-import { branchFg, greenFg, mutedFg, redFg, runBg } from '../constants';
+import { branchFg, greenFg, mutedFg, redFg } from '../constants';
 import { formatTokenCount } from '../utils';
 
 export function TokenUsageEventView({ event }: { event: TokenUsageEvent }) {
@@ -35,7 +35,7 @@ export function TokenUsageEventView({ event }: { event: TokenUsageEvent }) {
   return (
     <box style={{ width: '100%', flexDirection: 'column', marginTop: 1 }}>
       <box style={{ width: '100%', flexDirection: 'row' }}>
-        <Badge label={event.label} bg={runBg} />
+        <Badge label={event.label} />
       </box>
       <text>
         <span fg={branchFg}>{'└ '}</span>

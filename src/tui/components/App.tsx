@@ -1,7 +1,7 @@
 import { useKeyboard, useTerminalDimensions } from '@opentui/react';
 import { useCallback, useEffect, useState } from 'react';
 import { clearSession, getStoredSession } from '../auth/storage';
-import { fetchSessionMe } from '../auth/device';
+import { fetchCreditsMe, fetchSessionMe } from '../auth/device';
 import { useAgentStream } from '../hooks';
 import { assistantMarkerFg, inputBorderFg, mutedFg, runBg, textFg } from '../constants';
 import { toSessionOption } from '../utils';
@@ -36,6 +36,7 @@ export function App({ onExit }: { onExit: () => void }) {
   } = useAgentStream();
   const [inputValue, setInputValue] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [balance, setBalance] = useState<string | null>(null);
   const { width: terminalWidth } = useTerminalDimensions();
   const hasTasks = tasks.length > 0;
   const showSideTasks = hasTasks && terminalWidth >= 132;
@@ -76,6 +77,15 @@ export function App({ onExit }: { onExit: () => void }) {
         setIsAuthenticated(false);
       });
   }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const session = getStoredSession();
+    if (!session) return;
+    fetchCreditsMe(session.token)
+      .then((res) => setBalance(res.data.balance))
+      .catch((err) => console.error('[Balance] Failed to fetch:', err));
+  }, [isAuthenticated]);
 
   useKeyboard((key) => {
     if (key.name === 'escape') {
@@ -285,9 +295,15 @@ export function App({ onExit }: { onExit: () => void }) {
         }}
       >
         <text
-          content={`model: ${modelDisplayName}`}
-          style={{ fg: mutedFg }}
+          content={`${modelDisplayName}`}
+          style={{ fg: assistantMarkerFg }}
         />
+        {balance !== null ? (
+          <text
+            content={`  •  $${Number(balance).toFixed(2)}`}
+            style={{ fg: assistantMarkerFg }}
+          />
+        ) : null}
       </box>
     </box>
   );

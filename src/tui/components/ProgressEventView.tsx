@@ -1,7 +1,7 @@
 import { Badge } from './Badge';
 import { StreamingIndicator } from './StreamingIndicator';
 import type { ProgressEvent } from '../types';
-import { branchFg, mutedFg, pathFg, purpleBg, redFg } from '../constants';
+import { branchFg, mutedFg, pathFg, redFg } from '../constants';
 
 const readPathPrefix = 'reading file ';
 
@@ -22,7 +22,7 @@ export function ProgressEventView({ event }: { event: ProgressEvent }) {
   return (
     <box style={{ width: '100%', flexDirection: 'column' }}>
       <box style={{ width: '100%', flexDirection: 'row', gap: 1 }}>
-        <Badge label={event.label} bg={purpleBg} />
+        <Badge label={event.label} />
         {status === 'running' ? <StreamingIndicator /> : null}
       </box>
       {text ? (

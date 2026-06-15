@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Badge } from './Badge';
 import type { ExploreEvent } from '../types';
-import { branchFg, exploreBg, mutedFg, redFg } from '../constants';
+import { branchFg, mutedFg, redFg } from '../constants';
 import { formatTokenCount } from '../utils';
 
 export function ExploreEventView({ event }: { event: ExploreEvent }) {
@@ -31,12 +31,18 @@ export function ExploreEventView({ event }: { event: ExploreEvent }) {
   return (
     <box style={{ width: '100%', flexDirection: 'column' }}>
       <box style={{ width: '100%', flexDirection: 'row' }}>
-        <Badge label={event.label} bg={exploreBg} />
+        <Badge label={event.label} />
       </box>
       <text>
         <span fg={branchFg}>{'└ '}</span>
         <span fg={event.status === 'error' ? redFg : mutedFg}>{statusText}</span>
       </text>
+      {event.status === 'error' && event.errorMessage ? (
+        <text>
+          <span fg={branchFg}>{'└ '}</span>
+          <span fg={redFg}>{event.errorMessage}</span>
+        </text>
+      ) : null}
       {event.children.map((child) => (
         <text key={`${event.id}-${child.id}-${child.label}-${child.path}`}>
           <span fg={branchFg}>{'└ '}</span>

@@ -110,6 +110,33 @@ export async function fetchSessionMe(token: string): Promise<SessionMeResponse> 
   return res.json() as Promise<SessionMeResponse>;
 }
 
+export interface CreditsMeResponse {
+  data: {
+    balance: string;
+    updatedAt: string | null;
+    transactions: Array<{
+      id: string;
+      userId: string;
+      amountUsd: string;
+      type: string;
+      description: string;
+      createdAt: string;
+    }>;
+  };
+}
+
+export async function fetchCreditsMe(token: string): Promise<CreditsMeResponse> {
+  const res = await fetch(`${authServerUrl}/api/credits/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, `HTTP ${res.status}`));
+  }
+
+  return res.json() as Promise<CreditsMeResponse>;
+}
+
 export function storeDeviceToken(token: string, expiresIn: number, user?: SessionMeResponse['data']['user']): void {
   const expiresAt = expiresIn > 0 ? Date.now() + expiresIn * 1000 : undefined;
   storeSession({ token, user, expiresAt });

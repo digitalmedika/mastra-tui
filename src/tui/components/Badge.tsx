@@ -1,8 +1,8 @@
 import { TextAttributes } from '@opentui/core';
-import { purpleBg } from '../constants';
+import { getBadgeBg } from '../constants';
 
-export function Badge({ label, bg = purpleBg }: { label: string; bg?: string }) {
+export function Badge({ label, bg }: { label: string; bg?: string }) {
   return (
-    <text content={` ${label} `} style={{ fg: '#ffffff', bg, attributes: TextAttributes.BOLD }} />
+    <text content={` ${label} `} style={{ fg: '#ffffff', bg: bg ?? getBadgeBg(label), attributes: TextAttributes.BOLD }} />
   );
 }

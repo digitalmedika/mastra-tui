@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { TextAttributes } from '@opentui/core';
 import { Badge } from './Badge';
 import type { ShellEvent } from '../types';
-import { branchFg, mutedFg, pathFg, redFg, shellBg, textFg } from '../constants';
+import { branchFg, mutedFg, pathFg, redFg, textFg } from '../constants';
 
 export function ShellEventView({ event }: { event: ShellEvent }) {
   const [currentElapsed, setCurrentElapsed] = useState(event.elapsedSeconds);
@@ -31,7 +31,7 @@ export function ShellEventView({ event }: { event: ShellEvent }) {
   return (
     <box style={{ width: '100%', flexDirection: 'column' }}>
       <box style={{ width: '100%', flexDirection: 'row' }}>
-        <Badge label={event.label} bg={shellBg} />
+        <Badge label={event.label} />
         <text content="  " />
         <text content={event.command} style={{ fg: pathFg, attributes: TextAttributes.BOLD }} />
       </box>

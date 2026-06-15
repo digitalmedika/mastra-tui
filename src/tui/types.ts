@@ -80,6 +80,7 @@ export type ExploreEvent = {
   elapsedSeconds: number;
   tokenEstimate: number;
   children: ExploreChildEvent[];
+  errorMessage?: string;
 };
 
 export type ShellEvent = {
@@ -132,6 +133,8 @@ export type ToolPayload = {
   toolName?: string;
   args?: unknown;
   result?: unknown;
+  error?: unknown;
+  isError?: boolean;
 };
 
 export type TuiSession = {

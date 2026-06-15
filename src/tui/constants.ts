@@ -1,5 +1,6 @@
 import { SyntaxStyle, TextAttributes, getTreeSitterClient } from '@opentui/core';
 import type { TuiSession } from './types';
+import { defaultWorkspacePath } from '../workspace';
 
 export const SPINNER_FRAMES = ['|', '/', '-', '\\'];
 
@@ -23,7 +24,7 @@ export const markdownSyntaxStyle = SyntaxStyle.fromTheme([
   { scope: ['attribute'], style: { foreground: '#9CDCFE' } },
 ]);
 
-export const workspacePath = process.env.VIBE_CODING_WORKSPACE_PATH ?? '/Users/billymontolalu/Documents/project/central';
+export const workspacePath = defaultWorkspacePath;
 export const configuredMaxSteps = Number(process.env.VIBE_CODING_MAX_STEPS);
 export const agentMaxSteps = Number.isFinite(configuredMaxSteps) && configuredMaxSteps > 0 ? configuredMaxSteps : 60;
 export const authServerUrl = process.env.AUTH_SERVER_URL ?? 'http://localhost:3001';
@@ -43,6 +44,33 @@ export const shellBg = '#2374ab';
 export const taskBg = '#6b4dff';
 export const runBg = '#6d5dfc';
 export const assistantMarkerFg = '#c8a7ff';
+export const readBg = '#0f766e';
+export const editBg = '#1d4ed8';
+export const writeBg = '#2563eb';
+export const listBg = '#b45309';
+export const grepBg = '#be185d';
+export const deleteBg = '#b91c1c';
+export const statBg = '#475569';
+export const mkdirBg = '#15803d';
+export const usageBg = '#065f46';
+
+const badgeBgByLabel: Record<string, string> = {
+  RUN: runBg,
+  EXPLORE: exploreBg,
+  READ: readBg,
+  EDIT: editBg,
+  WRITE: writeBg,
+  LIST: listBg,
+  GREP: grepBg,
+  SHELL: shellBg,
+  TASK: taskBg,
+  DELETE: deleteBg,
+  STAT: statBg,
+  MKDIR: mkdirBg,
+  USAGE: usageBg,
+};
+
+export const getBadgeBg = (label: string) => badgeBgByLabel[label] ?? purpleBg;
 
 export const tuiResourceId = 'tui-user';
 export const defaultSessionId = 'tui-session';

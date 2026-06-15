@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import path from 'node:path';
 import { Agent } from '@mastra/core/agent';
 import type { OpenAICompatibleConfig } from '@mastra/core/llm';
@@ -6,21 +5,8 @@ import { LocalFilesystem, LocalSandbox, Workspace } from '@mastra/core/workspace
 import { LibSQLStore } from '@mastra/libsql';
 import { Memory } from '@mastra/memory';
 import { getStoredSession } from '../../tui/auth/storage';
+import { defaultWorkspacePath, findProjectRoot } from '../../workspace';
 import { tuiTaskListTool } from '../tools/tui-task-list-tool';
-
-function findProjectRoot(startDir: string = process.cwd()): string {
-  let dir = startDir;
-  while (true) {
-    if (fs.existsSync(path.join(dir, 'package.json'))) {
-      return dir;
-    }
-    const parent = path.dirname(dir);
-    if (parent === dir) {
-      return startDir;
-    }
-    dir = parent;
-  }
-}
 
 const projectRoot = findProjectRoot();
 
@@ -29,7 +15,7 @@ const authServerUrl = process.env.AUTH_SERVER_URL ?? 'http://localhost:3001';
 const explicitBaseUrl = process.env.OPENAI_COMPATIBLE_BASE_URL?.trim();
 const baseUrl = explicitBaseUrl || `${authServerUrl}/v1`;
 const envApiKey = process.env.OPENAI_COMPATIBLE_API_KEY ?? process.env.OPENAI_API_KEY ?? '';
-const workspacePath = process.env.VIBE_CODING_WORKSPACE_PATH ?? '/Users/billymontolalu/Documents/project/central';
+const workspacePath = defaultWorkspacePath;
 const memoryUrl = process.env.OPENAI_COMPATIBLE_MEMORY_URL ?? `file:${path.join(projectRoot, '.mastra', 'openai-compatible-agent-memory.db').replace(/\\/g, '/')}`;
 
 // Mutable model ID, initialized from env and refreshable at runtime.

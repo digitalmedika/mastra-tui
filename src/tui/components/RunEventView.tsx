@@ -1,7 +1,7 @@
 import { TextAttributes } from '@opentui/core';
 import { Badge } from './Badge';
 import type { RunEvent } from '../types';
-import { branchFg, mutedFg, pathFg, runBg, textFg } from '../constants';
+import { branchFg, mutedFg, pathFg, textFg } from '../constants';
 
 export function RunEventView({ event }: { event: RunEvent }) {
   const statusText =
@@ -16,7 +16,7 @@ export function RunEventView({ event }: { event: RunEvent }) {
   return (
     <box style={{ width: '100%', flexDirection: 'column' }}>
       <box style={{ width: '100%', flexDirection: 'row' }}>
-        <Badge label={event.label} bg={runBg} />
+        <Badge label={event.label} />
         <text content="  " />
         <text content={event.prompt} style={{ fg: pathFg, attributes: TextAttributes.BOLD }} />
       </box>

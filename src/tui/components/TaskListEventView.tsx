@@ -1,7 +1,7 @@
 import { TextAttributes } from '@opentui/core';
 import { Badge } from './Badge';
 import type { TaskListEvent } from '../types';
-import { branchFg, mutedFg, pathFg, redFg, taskBg } from '../constants';
+import { branchFg, mutedFg, pathFg, redFg } from '../constants';
 
 export function TaskListEventView({ event }: { event: TaskListEvent }) {
   const statusText = event.status === 'running' ? 'Running' : event.status === 'error' ? 'Failed' : 'Done';
@@ -9,7 +9,7 @@ export function TaskListEventView({ event }: { event: TaskListEvent }) {
   return (
     <box style={{ width: '100%', flexDirection: 'column' }}>
       <box style={{ width: '100%', flexDirection: 'row' }}>
-        <Badge label={event.label} bg={taskBg} />
+        <Badge label={event.label} />
         <text content="  " />
         <text content={event.summary} style={{ fg: pathFg, attributes: TextAttributes.BOLD }} />
       </box>
