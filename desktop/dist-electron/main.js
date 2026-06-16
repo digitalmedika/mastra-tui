@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
 import http from "node:http";
 let mastraProcess = null;
 let mastraPort$1 = 0;
+let mastraModelId = null;
 function getAvailablePort() {
   return new Promise((resolve, reject) => {
     const server = http.createServer();
@@ -67,19 +68,85 @@ function findPackageManager(cwd) {
   }
   return { command: "npm", args: ["run", "dev"] };
 }
-async function startMastra(projectRoot) {
+function isValidMastraProject(cwd) {
+  var _a;
+  const pkgPath = path.join(cwd, "package.json");
+  if (!fs.existsSync(pkgPath)) return false;
+  try {
+    const raw = fs.readFileSync(pkgPath, "utf8");
+    const pkg = JSON.parse(raw);
+    const devScript = (_a = pkg.scripts) == null ? void 0 : _a.dev;
+    if (!devScript || typeof devScript !== "string") return false;
+    return /\bmastra\s+dev\b/.test(devScript);
+  } catch {
+    return false;
+  }
+}
+async function resolveBackendDefaultModelId() {
+  var _a, _b, _c, _d;
+  const envModel = (_a = process.env.OPENAI_COMPATIBLE_MODEL) == null ? void 0 : _a.trim();
+  if (envModel) {
+    return envModel;
+  }
+  const authServerUrl = ((_b = process.env.AUTH_SERVER_URL) == null ? void 0 : _b.trim()) || "https://api.loccle.com";
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5e3);
+  try {
+    const response = await fetch(`${authServerUrl}/api/catalog/models`, {
+      signal: controller.signal
+    });
+    if (!response.ok) {
+      console.error(`[Mastra Manager] Failed to fetch model catalog: HTTP ${response.status}`);
+      return null;
+    }
+    const body = await response.json();
+    const firstModelId = (_d = (_c = body.data) == null ? void 0 : _c.find((model) => typeof model.publicModelId === "string" && model.publicModelId.trim())) == null ? void 0 : _d.publicModelId;
+    return typeof firstModelId === "string" ? firstModelId : null;
+  } catch (err) {
+    console.error("[Mastra Manager] Failed to fetch model catalog:", err);
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+function findMastraProjectRoot(startDir = path.dirname(fileURLToPath(import.meta.url))) {
+  let dir = startDir;
+  while (true) {
+    if (isValidMastraProject(dir)) {
+      return dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) {
+      return null;
+    }
+    dir = parent;
+  }
+}
+async function startMastra(workspaceRoot) {
   var _a, _b;
   if (mastraProcess) {
-    return mastraPort$1;
+    return { port: mastraPort$1, modelId: mastraModelId };
+  }
+  const mastraProjectRoot = findMastraProjectRoot();
+  if (!mastraProjectRoot) {
+    throw new Error(
+      'Loccle Mastra app could not be found. The desktop app must be launched from a project with a "dev" script that runs "mastra dev".'
+    );
   }
   mastraPort$1 = await getAvailablePort();
-  console.log(`[Mastra Manager] Starting server on port ${mastraPort$1}, project: ${projectRoot}`);
-  const { command, args } = findPackageManager(projectRoot);
+  mastraModelId = await resolveBackendDefaultModelId();
+  console.log(
+    `[Mastra Manager] Starting server on port ${mastraPort$1}, app: ${mastraProjectRoot}, workspace: ${workspaceRoot}, model: ${mastraModelId ?? "(default)"}`
+  );
+  const { command, args } = findPackageManager(mastraProjectRoot);
   mastraProcess = spawn(command, args, {
-    cwd: projectRoot,
+    cwd: mastraProjectRoot,
     env: {
       ...process.env,
       DESKTOP_MODE: "true",
+      VIBE_CODING_WORKSPACE_PATH: workspaceRoot,
+      ...mastraModelId ? { OPENAI_COMPATIBLE_MODEL: mastraModelId } : {},
+      PORT: String(mastraPort$1),
       MASTRA_PORT: String(mastraPort$1)
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -100,7 +167,7 @@ async function startMastra(projectRoot) {
     mastraProcess = null;
   });
   await waitForServer(mastraPort$1);
-  return mastraPort$1;
+  return { port: mastraPort$1, modelId: mastraModelId };
 }
 async function stopMastra() {
   if (!mastraProcess) return;
@@ -112,6 +179,7 @@ async function stopMastra() {
     }
     mastraProcess.on("exit", () => {
       mastraProcess = null;
+      mastraModelId = null;
       resolve();
     });
     if (process.platform === "win32") {
@@ -123,6 +191,7 @@ async function stopMastra() {
       if (mastraProcess) {
         mastraProcess.kill("SIGKILL");
         mastraProcess = null;
+        mastraModelId = null;
       }
       resolve();
     }, 5e3);
@@ -169,9 +238,10 @@ ipcMain.handle("mastra:start", async (_event, workspacePath) => {
   }
   try {
     currentProjectRoot = workspacePath;
-    mastraPort = await startMastra(workspacePath);
+    const result = await startMastra(workspacePath);
+    mastraPort = result.port;
     console.log(`[Desktop] Mastra server ready on port ${mastraPort}, workspace: ${workspacePath}`);
-    return { ok: true, url: `http://localhost:${mastraPort}` };
+    return { ok: true, url: `http://localhost:${mastraPort}`, modelId: result.modelId };
   } catch (err) {
     console.error("[Desktop] Failed to start Mastra:", err);
     return { ok: false, error: err.message || String(err) };

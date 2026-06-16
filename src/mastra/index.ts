@@ -47,16 +47,14 @@ export const mastra = new Mastra({
       },
     },
   }),
-  ...(desktopMode ? {
-    server: {
-      port: Number(process.env.MASTRA_PORT) || 4112,
-      cors: {
-        origin: '*',
-        allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-        allowHeaders: ['Content-Type', 'Authorization'],
-        credentials: false,
-      },
-      timeout: 600_000,
+  server: {
+    port: Number(process.env.MASTRA_PORT) || 4112,
+    cors: {
+      origin: '*',
+      allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      allowHeaders: ['Content-Type', 'Authorization'],
+      credentials: false,
     },
-  } : {}),
+    timeout: 600_000,
+  },
 });

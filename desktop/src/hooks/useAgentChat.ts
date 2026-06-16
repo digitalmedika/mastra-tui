@@ -3,6 +3,8 @@ import { getAgent, getMastraUrl } from '../lib/mastra-client'
 import { getActiveWorkspace } from '../lib/workspace-store'
 import type { Message, TaskItem, ToolEvent, StreamState, Session } from '../lib/types'
 
+const workspacePathContextKey = 'mastra-tui.workspacePath'
+
 function generateId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
@@ -114,7 +116,9 @@ export function useAgentChat() {
           resource: 'desktop-user',
         } : undefined,
         ...(workspace ? {
-          // Pass workspace info via external context (handled by custom route or headers)
+          requestContext: {
+            [workspacePathContextKey]: workspace.path,
+          },
         } as any : {}),
       })
 
@@ -182,16 +186,20 @@ export function useAgentChat() {
           if (chunk.type === 'finish' || chunk.type === 'step-finish') {
             const usage = chunk.payload?.usage ?? chunk.payload?.totalUsage
             if (usage) {
+              const inputTokens = usage.promptTokens ?? usage.inputTokens
+              const outputTokens = usage.completionTokens ?? usage.outputTokens
+              const totalTokens = usage.totalTokens
+                ?? (inputTokens != null && outputTokens != null ? inputTokens + outputTokens : undefined)
               const usageEvent: ToolEvent = {
                 id: generateId(),
                 type: 'usage',
                 label: 'USAGE',
                 status: 'done',
-                summary: `${usage.totalTokens ?? usage.promptTokens + usage.completionTokens ?? '?'} tokens`,
+                summary: `${totalTokens ?? '?'} tokens`,
                 usage: {
-                  inputTokens: usage.promptTokens ?? usage.inputTokens,
-                  outputTokens: usage.completionTokens ?? usage.outputTokens,
-                  totalTokens: usage.totalTokens,
+                  inputTokens,
+                  outputTokens,
+                  totalTokens,
                 },
               }
               setToolEvents((prev) => [...prev, usageEvent])

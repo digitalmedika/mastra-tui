@@ -3,12 +3,12 @@ import { useAgentChat } from '../hooks/useAgentChat'
 import { useWorkspaces } from '../hooks/useWorkspaces'
 import { useSessions } from '../hooks/useSessions'
 import { setMastraUrl, resetMastraClient } from '../lib/mastra-client'
+import { fetchModels, getCachedModels, getFirstModelId, getModelDisplayName, type CatalogModel } from '../lib/model-store'
 import Sidebar from './Sidebar'
 import ChatView from './ChatView'
 import TaskListPanel from './TaskListPanel'
 import StatusBar from './StatusBar'
 import AuthScreen from './AuthScreen'
-import type { TokenUsage } from '../lib/types'
 
 const electron = (window as any).electronAPI
 
@@ -18,10 +18,14 @@ export default function App() {
   const [mastraReady, setMastraReady] = useState(false)
   const [mastraStarting, setMastraStarting] = useState(false)
   const [mastraError, setMastraError] = useState('')
+  const [catalogModels, setCatalogModels] = useState<CatalogModel[]>(() => getCachedModels())
+  const [activeModelId, setActiveModelId] = useState<string | null>(() => getFirstModelId())
+  const catalogModelsRef = useRef<CatalogModel[]>(getCachedModels())
 
   const { workspaces, activeWorkspace, addWorkspace, removeWorkspace, setActiveWorkspace } = useWorkspaces()
   const { sessions, currentSession, createSession, selectSession, deleteSession } = useSessions(activeWorkspace?.id)
   const chat = useAgentChat()
+  const modelDisplayName = getModelDisplayName(activeModelId, catalogModels)
 
   // Check auth on mount
   useEffect(() => {
@@ -50,6 +54,25 @@ export default function App() {
     setMastraReady(false)
   }, [])
 
+  useEffect(() => {
+    if (!isAuthenticated) return
+
+    let cancelled = false
+
+    const loadModels = async () => {
+      const models = await fetchModels()
+      if (cancelled) return
+
+      catalogModelsRef.current = models
+      setCatalogModels(models)
+      setActiveModelId((current) => current ?? getFirstModelId(models))
+    }
+
+    void loadModels()
+
+    return () => { cancelled = true }
+  }, [isAuthenticated])
+
   // Start Mastra when active workspace changes
   useEffect(() => {
     if (!activeWorkspace || !isAuthenticated) return
@@ -58,6 +81,7 @@ export default function App() {
 
     const start = async () => {
       setMastraStarting(true)
+      setMastraReady(false)
       setMastraError('')
 
       try {
@@ -68,6 +92,10 @@ export default function App() {
           if (result.ok && result.url) {
             setMastraUrl(result.url)
             resetMastraClient()
+            const backendModelId = typeof result.modelId === 'string' && result.modelId.trim()
+              ? result.modelId
+              : null
+            setActiveModelId(backendModelId ?? getFirstModelId(catalogModelsRef.current))
             setMastraReady(true)
           } else {
             setMastraError(result.error || 'Failed to start Mastra server')
@@ -75,6 +103,7 @@ export default function App() {
         } else {
           // Browser fallback — assume Mastra is already running
           setMastraUrl('http://localhost:4112')
+          setActiveModelId((current) => current ?? getFirstModelId(catalogModelsRef.current))
           setMastraReady(true)
         }
       } catch (err: any) {
@@ -155,7 +184,7 @@ export default function App() {
 
       <StatusBar
         workspaceName={activeWorkspace?.name ?? 'No workspace'}
-        modelDisplayName="gpt-4o-mini"
+        modelDisplayName={modelDisplayName}
         mastraReady={mastraReady}
         status={chat.status}
       />

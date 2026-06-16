@@ -1,9 +1,17 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 let mastraProcess: ChildProcess | null = null
 let mastraPort = 0
+let mastraModelId: string | null = null
+
+export interface StartMastraResult {
+  port: number
+  modelId: string | null
+}
 
 function getAvailablePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -61,8 +69,6 @@ function waitForServer(port: number, timeoutMs = 60_000): Promise<void> {
   })
 }
 
-import fs from 'node:fs'
-
 function findPackageManager(cwd: string): { command: string; args: string[] } {
   if (fs.existsSync(path.join(cwd, 'package-lock.json'))) {
     return { command: 'npm', args: ['run', 'dev'] }
@@ -79,21 +85,98 @@ function findPackageManager(cwd: string): { command: string; args: string[] } {
   return { command: 'npm', args: ['run', 'dev'] }
 }
 
-export async function startMastra(projectRoot: string): Promise<number> {
+function isValidMastraProject(cwd: string): boolean {
+  const pkgPath = path.join(cwd, 'package.json')
+  if (!fs.existsSync(pkgPath)) return false
+
+  try {
+    const raw = fs.readFileSync(pkgPath, 'utf8')
+    const pkg = JSON.parse(raw)
+    const devScript = pkg.scripts?.dev
+    if (!devScript || typeof devScript !== 'string') return false
+    return /\bmastra\s+dev\b/.test(devScript)
+  } catch {
+    return false
+  }
+}
+
+async function resolveBackendDefaultModelId(): Promise<string | null> {
+  const envModel = process.env.OPENAI_COMPATIBLE_MODEL?.trim()
+  if (envModel) {
+    return envModel
+  }
+
+  const authServerUrl = process.env.AUTH_SERVER_URL?.trim() || 'https://api.loccle.com'
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 5_000)
+
+  try {
+    const response = await fetch(`${authServerUrl}/api/catalog/models`, {
+      signal: controller.signal,
+    })
+    if (!response.ok) {
+      console.error(`[Mastra Manager] Failed to fetch model catalog: HTTP ${response.status}`)
+      return null
+    }
+
+    const body = await response.json() as { data?: Array<{ publicModelId?: unknown }> }
+    const firstModelId = body.data?.find((model) => typeof model.publicModelId === 'string' && model.publicModelId.trim())
+      ?.publicModelId
+
+    return typeof firstModelId === 'string' ? firstModelId : null
+  } catch (err) {
+    console.error('[Mastra Manager] Failed to fetch model catalog:', err)
+    return null
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+function findMastraProjectRoot(startDir = path.dirname(fileURLToPath(import.meta.url))): string | null {
+  let dir = startDir
+
+  while (true) {
+    if (isValidMastraProject(dir)) {
+      return dir
+    }
+
+    const parent = path.dirname(dir)
+    if (parent === dir) {
+      return null
+    }
+
+    dir = parent
+  }
+}
+
+export async function startMastra(workspaceRoot: string): Promise<StartMastraResult> {
   if (mastraProcess) {
-    return mastraPort
+    return { port: mastraPort, modelId: mastraModelId }
+  }
+
+  const mastraProjectRoot = findMastraProjectRoot()
+  if (!mastraProjectRoot) {
+    throw new Error(
+      'Loccle Mastra app could not be found. The desktop app must be launched from a project with a "dev" script that runs "mastra dev".',
+    )
   }
 
   mastraPort = await getAvailablePort()
-  console.log(`[Mastra Manager] Starting server on port ${mastraPort}, project: ${projectRoot}`)
+  mastraModelId = await resolveBackendDefaultModelId()
+  console.log(
+    `[Mastra Manager] Starting server on port ${mastraPort}, app: ${mastraProjectRoot}, workspace: ${workspaceRoot}, model: ${mastraModelId ?? '(default)'}`,
+  )
 
-  const { command, args } = findPackageManager(projectRoot)
+  const { command, args } = findPackageManager(mastraProjectRoot)
 
   mastraProcess = spawn(command, args, {
-    cwd: projectRoot,
+    cwd: mastraProjectRoot,
     env: {
       ...process.env,
       DESKTOP_MODE: 'true',
+      VIBE_CODING_WORKSPACE_PATH: workspaceRoot,
+      ...(mastraModelId ? { OPENAI_COMPATIBLE_MODEL: mastraModelId } : {}),
+      PORT: String(mastraPort),
       MASTRA_PORT: String(mastraPort),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -119,7 +202,7 @@ export async function startMastra(projectRoot: string): Promise<number> {
   })
 
   await waitForServer(mastraPort)
-  return mastraPort
+  return { port: mastraPort, modelId: mastraModelId }
 }
 
 export async function stopMastra(): Promise<void> {
@@ -135,6 +218,7 @@ export async function stopMastra(): Promise<void> {
 
     mastraProcess.on('exit', () => {
       mastraProcess = null
+      mastraModelId = null
       resolve()
     })
 
@@ -150,6 +234,7 @@ export async function stopMastra(): Promise<void> {
       if (mastraProcess) {
         mastraProcess.kill('SIGKILL')
         mastraProcess = null
+        mastraModelId = null
       }
       resolve()
     }, 5000)

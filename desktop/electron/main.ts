@@ -55,9 +55,10 @@ ipcMain.handle('mastra:start', async (_event, workspacePath: string) => {
 
   try {
     currentProjectRoot = workspacePath
-    mastraPort = await startMastra(workspacePath)
+    const result = await startMastra(workspacePath)
+    mastraPort = result.port
     console.log(`[Desktop] Mastra server ready on port ${mastraPort}, workspace: ${workspacePath}`)
-    return { ok: true, url: `http://localhost:${mastraPort}` }
+    return { ok: true, url: `http://localhost:${mastraPort}`, modelId: result.modelId }
   } catch (err: any) {
     console.error('[Desktop] Failed to start Mastra:', err)
     return { ok: false, error: err.message || String(err) }
