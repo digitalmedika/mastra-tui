@@ -44,3 +44,6 @@ dist
 .netlify
 .vercel
 .commandcode
+*.duckdb.wal
+*.db-wal
+*.db-shm

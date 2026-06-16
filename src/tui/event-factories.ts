@@ -47,7 +47,7 @@ export const isShellTool = (toolName: string | undefined) => {
 };
 
 export const isTaskListToolName = (toolName: string | undefined) => {
-  return toolName === 'tui_task_list' || toolName === 'tuiTaskListTool';
+  return toolName === 'tuiTaskList';
 };
 
 const findStartLine = (filePath: string, needle: string | undefined) => {

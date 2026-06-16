@@ -9,8 +9,8 @@ const taskSchema = z.object({
   status: taskStatusSchema.default('pending').describe('Current task status'),
 });
 
-export const tuiTaskListTool = createTool({
-  id: 'tui_task_list',
+export const tuiTaskList = createTool({
+  id: 'tuiTaskList',
   description:
     'Update the terminal UI checklist. Use action=set when you decide the task plan, and action=update whenever a task starts or completes.',
   inputSchema: z.object({

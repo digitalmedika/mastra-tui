@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { Agent } from '@mastra/core/agent';
 import type { OpenAICompatibleConfig } from '@mastra/core/llm';
@@ -5,8 +6,8 @@ import { LocalFilesystem, LocalSandbox, Workspace } from '@mastra/core/workspace
 import { LibSQLStore } from '@mastra/libsql';
 import { Memory } from '@mastra/memory';
 import { getStoredSession } from '../../tui/auth/storage';
-import { defaultWorkspacePath, findProjectRoot, getRequestAllowedExternalWorkspacePaths } from '../../workspace';
-import { tuiTaskListTool } from '../tools/tui-task-list-tool';
+import { findProjectRoot, getRequestAllowedExternalWorkspacePaths, getRequestWorkspacePath } from '../../workspace';
+import { tuiTaskList } from '../tools/tui-task-list-tool';
 
 const projectRoot = findProjectRoot();
 
@@ -15,8 +16,9 @@ const authServerUrl = process.env.AUTH_SERVER_URL ?? 'http://localhost:3001';
 const explicitBaseUrl = process.env.OPENAI_COMPATIBLE_BASE_URL?.trim();
 const baseUrl = explicitBaseUrl || `${authServerUrl}/v1`;
 const envApiKey = process.env.OPENAI_COMPATIBLE_API_KEY ?? process.env.OPENAI_API_KEY ?? '';
-const workspacePath = defaultWorkspacePath;
-const memoryUrl = process.env.OPENAI_COMPATIBLE_MEMORY_URL ?? `file:${path.join(projectRoot, '.mastra', 'openai-compatible-agent-memory.db').replace(/\\/g, '/')}`;
+const defaultMemoryPath = path.join(projectRoot, '.mastra', 'openai-compatible-agent-memory.db');
+fs.mkdirSync(path.dirname(defaultMemoryPath), { recursive: true });
+const memoryUrl = process.env.OPENAI_COMPATIBLE_MEMORY_URL ?? `file:${defaultMemoryPath.replace(/\\/g, '/')}`;
 
 // Mutable model ID, initialized from env and refreshable at runtime.
 let currentModelId = process.env.OPENAI_COMPATIBLE_MODEL?.trim() || 'gpt-4o-mini';
@@ -38,13 +40,21 @@ function buildModelConfig(): OpenAICompatibleConfig {
 const vibeCodingWorkspace = new Workspace({
   id: 'vibe-coding-workspace',
   name: 'Vibe Coding Workspace',
-  filesystem: ({ requestContext }) => new LocalFilesystem({
-    basePath: workspacePath,
-    allowedPaths: getRequestAllowedExternalWorkspacePaths(requestContext),
+  filesystem: ({ requestContext }) => {
+    const workspacePath = getRequestWorkspacePath(requestContext);
+    return new LocalFilesystem({
+      basePath: workspacePath,
+      allowedPaths: getRequestAllowedExternalWorkspacePaths(requestContext),
+    });
+  },
+  sandbox: ({ requestContext }) => new LocalSandbox({
+    workingDirectory: getRequestWorkspacePath(requestContext),
   }),
-  sandbox: new LocalSandbox({
-    workingDirectory: workspacePath,
-  }),
+  sandboxCacheKey: ({ requestContext }) => getRequestWorkspacePath(requestContext),
+  instructions: {
+    dynamicSandbox: ({ requestContext }) =>
+      `Local command execution. Working directory: "${getRequestWorkspacePath(requestContext)}".`,
+  },
 });
 
 const instructions = `You are a vibe coding assistant: a collaborative software partner who helps users turn rough ideas into working code through fast, thoughtful iteration.
@@ -52,9 +62,9 @@ const instructions = `You are a vibe coding assistant: a collaborative software 
 When responding:
 - Start from the user's intent, even when the brief is casual or incomplete
 - Propose a simple implementation path, then help refine it through feedback
-- When a task needs multiple steps, call tui_task_list with action=set before starting work
-- Call tui_task_list with action=update and status=in_progress when starting a task
-- Call tui_task_list with action=update and status=completed immediately after finishing a task
+- When a task needs multiple steps, call tuiTaskList with action=set before starting work
+- Call tuiTaskList with action=update and status=in_progress when starting a task
+- Call tuiTaskList with action=update and status=completed immediately after finishing a task
 - When asked about the visible task list, treat the current TUI checklist context as authoritative; do not claim every task is complete while any visible checklist item is pending or in_progress
 - Favor small, working increments over over-engineered plans
 - Explain tradeoffs briefly and choose sensible defaults when the user has not specified details
@@ -77,7 +87,7 @@ function createAgent(): Agent {
     name: 'Vibe Coding Agent',
     instructions,
     model: buildModelConfig(),
-    tools: { tuiTaskListTool },
+    tools: { tuiTaskList },
     workspace: vibeCodingWorkspace,
     memory: new Memory({
       storage: new LibSQLStore({

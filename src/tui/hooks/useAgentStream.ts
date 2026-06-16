@@ -7,6 +7,7 @@ import {
   getAllowedExternalWorkspacePaths,
   isPathWithinAllowedRoots,
   normalizeWorkspacePath,
+  workspacePathKey,
 } from '../../workspace';
 import { agentMaxSteps, defaultSession, defaultSessionId, tuiResourceId, workspacePath } from '../constants';
 import { fetchModels, getCachedModels, initModelStore, setSelectedModelId, type CatalogModel } from '../model-store';
@@ -77,8 +78,6 @@ const summarizeArgs = (args: unknown) => {
 
 const cleanTaskText = (text: string) => text.replace(/\*\*/g, '').replace(/`/g, '').replace(/\s+/g, ' ').trim();
 
-const isTaskListToolNameFn = (toolName: string | undefined) => toolName === 'tui_task_list' || toolName === 'tuiTaskListTool';
-
 type ApprovalResume = (approved: boolean) => Promise<boolean>;
 
 const buildTaskContext = (tasks: TaskItem[]) => {
@@ -96,7 +95,7 @@ ${taskLines}
 
 Treat this checklist as authoritative when the user asks about task progress or completion.
 Do not say all tasks are complete unless every visible checklist item is completed.
-If you actually start or complete one of these visible checklist items, call tui_task_list action=update with the matching taskId before saying it is done.`;
+If you actually start or complete one of these visible checklist items, call tuiTaskList action=update with the matching taskId before saying it is done.`;
 };
 
 const pathArgKeys = ['path', 'filePath', 'filepath', 'file', 'targetPath', 'target', 'directory', 'dir', 'cwd', 'basePath'];
@@ -266,8 +265,7 @@ export function useAgentStream() {
 
     const getToolLabel = (toolName: string | undefined): string => {
       switch (toolName) {
-        case 'tui_task_list':
-        case 'tuiTaskListTool': return 'TASK';
+        case 'tuiTaskList': return 'TASK';
         case 'mastra_workspace_read_file': return 'READ';
         case 'mastra_workspace_write_file': return 'WRITE';
         case 'mastra_workspace_edit_file': return 'EDIT';
@@ -291,8 +289,7 @@ export function useAgentStream() {
       const pattern = getArgString(args, ['pattern', 'query', 'search']);
 
       switch (toolName) {
-        case 'tui_task_list':
-        case 'tuiTaskListTool': {
+        case 'tuiTaskList': {
           const record = asArgsRecord(args);
           if (record?.action === 'set' && Array.isArray(record.tasks)) return `updating checklist (${record.tasks.length} tasks)`;
           if (record?.action === 'update') return `updating checklist task ${String(record.taskId ?? '?')} -> ${String(record.status ?? '?')}`;
@@ -314,7 +311,7 @@ export function useAgentStream() {
 
     const applyTaskListTool = (payload: ToolPayload) => {
       const args = asArgsRecord(payload.args);
-      if (!args || !isTaskListToolNameFn(payload.toolName)) return;
+      if (!args || !isTaskListToolName(payload.toolName)) return;
 
       hasStructuredTaskList = true;
 
@@ -390,6 +387,7 @@ export function useAgentStream() {
     };
 
     const createRequestContext = () => new RequestContext([
+      [workspacePathKey, workspacePath],
       [allowedExternalWorkspacePathsKey, getAllowedExternalWorkspacePaths(currentSession.id)],
     ]);
 
@@ -836,9 +834,7 @@ export function useAgentStream() {
       if (request.id > 0) appendLine('');
       const runStartedAt = Date.now();
       const runEventId = appendRunEvent(request.prompt);
-      const requestContext = new RequestContext([
-        [allowedExternalWorkspacePathsKey, getAllowedExternalWorkspacePaths(currentSession.id)],
-      ]);
+      const requestContext = createRequestContext();
 
       try {
         const response = await openAICompatibleAgent.stream(request.prompt, {

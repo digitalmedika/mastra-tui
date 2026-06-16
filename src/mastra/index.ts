@@ -8,13 +8,13 @@ import { Observability, MastraStorageExporter, MastraPlatformExporter, Sensitive
 import { weatherWorkflow } from './workflows/weather-workflow';
 import { openAICompatibleAgent } from './agents/openai-compatible-agent';
 import { weatherTool } from './tools/weather-tool';
-import { tuiTaskListTool } from './tools/tui-task-list-tool';
+import { tuiTaskList } from './tools/tui-task-list-tool';
 import { toolCallAppropriatenessScorer, completenessScorer, translationScorer } from './scorers/weather-scorer';
 
 export const mastra = new Mastra({
   workflows: { weatherWorkflow },
   agents: { openAICompatibleAgent },
-  tools: { weatherTool, tuiTaskListTool },
+  tools: { weatherTool, tuiTaskList },
   scorers: { toolCallAppropriatenessScorer, completenessScorer, translationScorer },
   storage: new MastraCompositeStore({
     id: 'composite-storage',

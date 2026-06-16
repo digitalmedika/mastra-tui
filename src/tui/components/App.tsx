@@ -6,6 +6,8 @@ import { useAgentStream } from '../hooks';
 import { assistantMarkerFg, greenFg, inputBorderFg, mutedFg, redFg, runBg, textFg } from '../constants';
 import { toSessionOption } from '../utils';
 import { refreshAgent } from '../../mastra/agents/openai-compatible-agent';
+import type { ApprovalEvent, StreamEvent } from '../types';
+import { ApprovalOverlay } from './ApprovalOverlay';
 import { Badge } from './Badge';
 import { DeviceLogin } from './DeviceLogin';
 import { StreamingIndicator } from './StreamingIndicator';
@@ -16,6 +18,14 @@ import { PaymentOverlay, PAYMENT_AMOUNTS, type PaymentData, type PaymentPhase } 
 const hasPositiveBalance = (value: string | null) => {
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric > 0;
+};
+
+const getPendingApprovalEvent = (events: StreamEvent[]): ApprovalEvent | null => {
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const event = events[i];
+    if (event.type === 'approval' && event.status === 'pending') return event;
+  }
+  return null;
 };
 
 export function App({ onExit }: { onExit: () => void }) {
@@ -52,9 +62,13 @@ export function App({ onExit }: { onExit: () => void }) {
   const [paymentData, setPaymentData] = useState<PaymentData | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
+  const [approvalSelectedIndex, setApprovalSelectedIndex] = useState(0);
+  const [approvalSubmitting, setApprovalSubmitting] = useState(false);
   const { width: terminalWidth } = useTerminalDimensions();
   const hasTasks = tasks.length > 0;
   const showSideTasks = hasTasks && terminalWidth >= 132;
+  const pendingApprovalEvent = getPendingApprovalEvent(events);
+  const approvalOverlayOpen = status === 'awaiting-approval' && pendingApprovalEvent !== null;
   const sessionOptions = sessions.map(toSessionOption);
   const selectedSessionIndex = Math.max(
     0,
@@ -71,7 +85,7 @@ export function App({ onExit }: { onExit: () => void }) {
     models.findIndex((m) => m.publicModelId === selectedModelId),
   );
   const modelSelectHeight = Math.min(14, Math.max(3, modelOptions.length * 2));
-  const anyPickerOpen = sessionPickerOpen || modelPickerOpen || paymentOverlayOpen;
+  const anyPickerOpen = sessionPickerOpen || modelPickerOpen || paymentOverlayOpen || approvalOverlayOpen;
   const activeModel = models.find((m) => m.publicModelId === selectedModelId);
   const modelDisplayName = activeModel ? activeModel.name : selectedModelId;
 
@@ -107,6 +121,16 @@ export function App({ onExit }: { onExit: () => void }) {
     refreshBalance()
       .catch((err) => console.error('[Balance] Failed to fetch:', err));
   }, [isAuthenticated, refreshBalance]);
+
+  useEffect(() => {
+    if (approvalOverlayOpen) {
+      setApprovalSelectedIndex(0);
+      setApprovalSubmitting(false);
+      return;
+    }
+
+    setApprovalSubmitting(false);
+  }, [approvalOverlayOpen, pendingApprovalEvent?.id]);
 
   // Refresh balance after each streaming request completes
   const prevStatusRef = useRef(status);
@@ -174,6 +198,14 @@ export function App({ onExit }: { onExit: () => void }) {
     };
   }, [paymentData, paymentOverlayOpen, paymentPhase, pendingPrompt, refreshBalance, status, submitPrompt]);
 
+  const handleApprovalDecision = useCallback(async (approved: boolean) => {
+    if (!approvalOverlayOpen || approvalSubmitting) return;
+
+    setApprovalSubmitting(true);
+    const ok = await respondToApproval(approved);
+    if (!ok) setApprovalSubmitting(false);
+  }, [approvalOverlayOpen, approvalSubmitting, respondToApproval]);
+
   useKeyboard((key) => {
     // Payment overlay keyboard navigation
     if (paymentOverlayOpen) {
@@ -198,6 +230,32 @@ export function App({ onExit }: { onExit: () => void }) {
       }
       if (key.name === 'escape') {
         resetPaymentOverlay();
+        return;
+      }
+      return;
+    }
+
+    if (approvalOverlayOpen) {
+      if (key.name === 'left' || key.name === 'up') {
+        setApprovalSelectedIndex(0);
+        return;
+      }
+      if (key.name === 'right' || key.name === 'down' || key.name === 'tab') {
+        setApprovalSelectedIndex(1);
+        return;
+      }
+      if (key.name === 'return') {
+        void handleApprovalDecision(approvalSelectedIndex === 0);
+        return;
+      }
+      if (key.name === 'a' || key.name === 'y') {
+        setApprovalSelectedIndex(0);
+        void handleApprovalDecision(true);
+        return;
+      }
+      if (key.name === 'd' || key.name === 'n' || key.name === 'escape') {
+        setApprovalSelectedIndex(1);
+        void handleApprovalDecision(false);
         return;
       }
       return;
@@ -442,6 +500,13 @@ export function App({ onExit }: { onExit: () => void }) {
           error={paymentError}
         />
       ) : null}
+      {approvalOverlayOpen && pendingApprovalEvent ? (
+        <ApprovalOverlay
+          event={pendingApprovalEvent}
+          selectedIndex={approvalSelectedIndex}
+          submitting={approvalSubmitting}
+        />
+      ) : null}
       {hasTasks && !showSideTasks ? (
         <TaskListPanel tasks={tasks} sidePanel={false} terminalWidth={terminalWidth} />
       ) : null}
@@ -481,7 +546,7 @@ export function App({ onExit }: { onExit: () => void }) {
             paymentOverlayOpen
               ? 'Pilih nominal top-up terlebih dahulu...'
               : status === 'awaiting-approval'
-                ? 'Type /approve to continue or /deny to reject...'
+                ? 'Gunakan approval overlay, atau ketik /approve /deny sebagai fallback...'
                 : status === 'streaming'
                   ? 'Wait for streaming to finish...'
                   : 'Ask your question...'

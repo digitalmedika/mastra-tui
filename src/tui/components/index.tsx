@@ -1,5 +1,6 @@
 export { App } from './App';
 export { ApprovalEventView } from './ApprovalEventView';
+export { ApprovalOverlay } from './ApprovalOverlay';
 export { AssistantMessageView } from './AssistantMessageView';
 export { Badge } from './Badge';
 export { DeviceLogin } from './DeviceLogin';

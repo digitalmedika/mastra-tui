@@ -26,7 +26,7 @@ export function ApprovalEventView({ event }: { event: ApprovalEvent }) {
       {event.status === 'pending' ? (
         <text>
           <span fg={branchFg}>{'└ '}</span>
-          <span fg={mutedFg}>{'type /approve to continue or /deny to reject'}</span>
+          <span fg={mutedFg}>{'use the approval overlay above to continue or deny'}</span>
         </text>
       ) : null}
     </box>
