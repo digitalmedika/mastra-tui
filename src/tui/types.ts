@@ -62,6 +62,14 @@ export type ReadEvent = {
   label: 'READ';
   path: string;
   lines: number;
+  children?: ReadChildEvent[];
+};
+
+export type ReadChildEvent = {
+  id: number;
+  path: string;
+  lines?: number;
+  ok?: boolean;
 };
 
 export type ExploreChildEvent = {

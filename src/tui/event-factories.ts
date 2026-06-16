@@ -24,6 +24,7 @@ import {
   getPayloadPath,
   getResultText,
   getStringField,
+  isRecord,
 } from './utils';
 
 export const isEditTool = (toolName: string | undefined) => {
@@ -31,7 +32,7 @@ export const isEditTool = (toolName: string | undefined) => {
 };
 
 export const isReadTool = (toolName: string | undefined) => {
-  return toolName === 'mastra_workspace_read_file';
+  return toolName === 'mastra_workspace_read_file' || toolName === 'readManyFiles';
 };
 
 export const isExploreTool = (toolName: string | undefined) => {
@@ -139,6 +140,32 @@ export const createReadEvent = (id: number, payload: ToolPayload, fallbackPayloa
   const toolName = payload.toolName ?? fallbackPayload?.toolName;
   if (!isReadTool(toolName)) {
     return undefined;
+  }
+
+  if (toolName === 'readManyFiles') {
+    const args = getPayloadArgs(payload, fallbackPayload);
+    const paths = Array.isArray(args?.paths) ? args.paths.filter((item): item is string => typeof item === 'string') : [];
+    const result = isRecord(payload.result) ? payload.result : isRecord(fallbackPayload?.result) ? fallbackPayload.result : undefined;
+    const totalLines = typeof result?.totalLines === 'number' ? result.totalLines : 0;
+    const resultFiles = Array.isArray(result?.files) ? result.files.filter(isRecord) : [];
+    const children =
+      resultFiles.length > 0
+        ? resultFiles.map((file, index) => ({
+            id: index,
+            path: getStringField(file, ['path']) ?? `file ${index + 1}`,
+            lines: typeof file.lineCount === 'number' ? file.lineCount : undefined,
+            ok: typeof file.ok === 'boolean' ? file.ok : undefined,
+          }))
+        : paths.map((path, index) => ({ id: index, path }));
+
+    return {
+      id,
+      type: 'read',
+      label: 'READ',
+      path: `${paths.length} ${paths.length === 1 ? 'file' : 'files'}`,
+      lines: totalLines,
+      children,
+    };
   }
 
   const filePath = getPayloadPath(payload, fallbackPayload);

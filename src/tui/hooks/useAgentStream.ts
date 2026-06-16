@@ -267,6 +267,7 @@ export function useAgentStream() {
       switch (toolName) {
         case 'tuiTaskList': return 'TASK';
         case 'mastra_workspace_read_file': return 'READ';
+        case 'readManyFiles': return 'READ';
         case 'mastra_workspace_write_file': return 'WRITE';
         case 'mastra_workspace_edit_file': return 'EDIT';
         case 'mastra_workspace_list_files': return 'LIST';
@@ -296,6 +297,11 @@ export function useAgentStream() {
           return 'updating checklist';
         }
         case 'mastra_workspace_read_file': return `reading file ${(path ?? summarizeArgs(args)) || '(path unavailable)'}`;
+        case 'readManyFiles': {
+          const record = asArgsRecord(args);
+          const paths = Array.isArray(record?.paths) ? record.paths.filter((item) => typeof item === 'string') : [];
+          return `reading ${paths.length || 'multiple'} files`;
+        }
         case 'mastra_workspace_write_file': return `writing file ${(path ?? summarizeArgs(args)) || '(path unavailable)'}`;
         case 'mastra_workspace_edit_file': return `editing file ${(path ?? summarizeArgs(args)) || '(path unavailable)'}`;
         case 'mastra_workspace_list_files': return `listing files in ${directory}${summarizeArgs(args)}`;

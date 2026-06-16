@@ -7,6 +7,7 @@ import { LibSQLStore } from '@mastra/libsql';
 import { Memory } from '@mastra/memory';
 import { getStoredSession } from '../../tui/auth/storage';
 import { findProjectRoot, getRequestAllowedExternalWorkspacePaths, getRequestWorkspacePath } from '../../workspace';
+import { readManyFiles } from '../tools/read-many-files-tool';
 import { tuiTaskList } from '../tools/tui-task-list-tool';
 
 const projectRoot = findProjectRoot();
@@ -67,6 +68,9 @@ When responding:
 - Call tuiTaskList with action=update and status=completed immediately after finishing a task
 - When asked about the visible task list, treat the current TUI checklist context as authoritative; do not claim every task is complete while any visible checklist item is pending or in_progress
 - Favor small, working increments over over-engineered plans
+- When exactly one file needs to be read, use the built-in mastra_workspace_read_file tool
+- When two or more known file paths need to be read, use readManyFiles so the files are read together in one tool call
+- Use sequential single-file reads only when the next file depends on what you just learned, or when you need one focused follow-up snippet
 - Explain tradeoffs briefly and choose sensible defaults when the user has not specified details
 - Write clear code with maintainable structure and practical naming
 - Point out likely bugs, edge cases, and missing requirements before they become expensive
@@ -87,7 +91,7 @@ function createAgent(): Agent {
     name: 'Vibe Coding Agent',
     instructions,
     model: buildModelConfig(),
-    tools: { tuiTaskList },
+    tools: { tuiTaskList, readManyFiles },
     workspace: vibeCodingWorkspace,
     memory: new Memory({
       storage: new LibSQLStore({
