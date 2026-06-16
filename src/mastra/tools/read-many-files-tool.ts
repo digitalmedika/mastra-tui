@@ -11,6 +11,12 @@ const readManyFileResultSchema = z.object({
   error: z.string().optional(),
 });
 
+type ReadManyFilesInput = {
+  paths: string[];
+};
+
+type ReadManyFileResult = z.infer<typeof readManyFileResultSchema>;
+
 const countLines = (content: string) => {
   if (!content) return 0;
   const lines = content.split('\n');
@@ -39,11 +45,11 @@ export const readManyFiles = createTool({
     totalLines: z.number().int().nonnegative(),
     files: z.array(readManyFileResultSchema),
   }),
-  execute: async ({ paths }, context) => {
+  execute: async ({ paths }: ReadManyFilesInput, context) => {
     const { filesystem } = requireFilesystem(context);
 
     const files = await Promise.all(
-      paths.map(async (filePath) => {
+      paths.map(async (filePath): Promise<ReadManyFileResult> => {
         try {
           const rawContent = await filesystem.readFile(filePath, { encoding: 'utf8' });
           const content = typeof rawContent === 'string' ? rawContent : rawContent.toString('utf8');
