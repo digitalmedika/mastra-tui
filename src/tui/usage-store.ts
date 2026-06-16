@@ -11,7 +11,7 @@ interface BackendUsageRequest {
 }
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-const authServerUrl = process.env.AUTH_SERVER_URL ?? 'http://localhost:3001';
+const authServerUrl = process.env.AUTH_SERVER_URL ?? 'https://api.loccle.com';
 
 const toTimestamp = (value: BackendUsageRequest['startedAt']) => {
   if (value instanceof Date) return value.getTime();

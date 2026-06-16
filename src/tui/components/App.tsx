@@ -585,6 +585,8 @@ export function App({ onExit }: { onExit: () => void }) {
             style={{ fg: assistantMarkerFg }}
           />
         ) : null}
+        <box style={{ flexGrow: 1 }} />
+        <text content="▄▄▄" style={{ fg: '#FFFFFF', bg: '#CE1126' }} />
       </box>
     </box>
   );

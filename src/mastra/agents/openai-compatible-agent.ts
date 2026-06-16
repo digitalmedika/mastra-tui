@@ -13,7 +13,7 @@ import { tuiTaskList } from '../tools/tui-task-list-tool';
 const projectRoot = findProjectRoot();
 
 const providerId = process.env.OPENAI_COMPATIBLE_PROVIDER_ID ?? 'custom';
-const authServerUrl = process.env.AUTH_SERVER_URL ?? 'http://localhost:3001';
+const authServerUrl = process.env.AUTH_SERVER_URL ?? 'https://api.loccle.com';
 const explicitBaseUrl = process.env.OPENAI_COMPATIBLE_BASE_URL?.trim();
 const baseUrl = explicitBaseUrl || `${authServerUrl}/v1`;
 const envApiKey = process.env.OPENAI_COMPATIBLE_API_KEY ?? process.env.OPENAI_API_KEY ?? '';

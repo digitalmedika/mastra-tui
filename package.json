@@ -1,11 +1,21 @@
 {
-  "name": "mastra-tui",
+  "name": "loccle",
+  "version": "1.0.16",
+  "description": "Terminal UI for Loccle powered by Mastra and OpenTUI.",
   "module": "index.ts",
   "type": "module",
-  "private": true,
   "bin": {
-    "mastra-tui": "./bin/mastra-tui.ts"
+    "loccle": "bin/mastra-tui.ts",
+    "mastra-tui": "bin/mastra-tui.ts"
   },
+  "files": [
+    "bin/**/*",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "index.ts",
+    "tsconfig.json",
+    "README.md"
+  ],
   "devDependencies": {
     "@types/bun": "latest",
     "@types/node": "^25.9.3",

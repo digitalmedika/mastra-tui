@@ -1,10 +1,21 @@
-# mastra-tui
+# loccle
 
-Welcome to your new [Mastra](https://mastra.ai/) project! We're excited to see what you'll build.
+Terminal UI for Loccle, powered by [Mastra](https://mastra.ai/) and OpenTUI.
 
-## Getting Started
+## Usage
 
-Start the development server:
+Run the TUI:
+
+```shell
+bunx loccle
+```
+
+The CLI uses `https://api.loccle.com` as its backend by default. Set
+`AUTH_SERVER_URL` to override it for local development or staging.
+
+## Development
+
+Start the Mastra development server:
 
 ```shell
 bun run dev
@@ -12,19 +23,16 @@ bun run dev
 
 Open [http://localhost:4111](http://localhost:4111) in your browser to access [Mastra Studio](https://mastra.ai/docs/studio/overview). It provides an interactive UI for building and testing your agents, along with a REST API that exposes your Mastra application as a local service. This lets you start building without worrying about integration right away.
 
-You can start editing files inside the `src/mastra` directory. The development server will automatically reload whenever you make changes.
+Open [http://localhost:4111](http://localhost:4111) in your browser to access Mastra Studio. The development server will automatically reload whenever you make changes.
 
-## Learn more
+Run the TUI from the source tree:
 
-To learn more about Mastra, visit our [documentation](https://mastra.ai/docs/). Your bootstrapped project includes example code for [agents](https://mastra.ai/docs/agents/overview), [tools](https://mastra.ai/docs/agents/using-tools), [workflows](https://mastra.ai/docs/workflows/overview), [scorers](https://mastra.ai/docs/evals/overview), and [observability](https://mastra.ai/docs/observability/overview).
+```shell
+bun run tui
+```
 
-If you're new to AI agents, check out our [course](https://mastra.ai/learn) and [YouTube videos](https://youtube.com/@mastra-ai). You can also join our [Discord](https://discord.gg/BTYqqHKUrf) community to get help and share your projects.
+Build the Mastra app:
 
-## Deploy to the Mastra platform
-
-The [Mastra platform](https://projects.mastra.ai) provides two products for deploying and managing AI applications built with the Mastra framework:
-
-- **Studio**: A hosted visual environment for testing agents, running workflows, and inspecting traces
-- **Server**: A production deployment target that runs your Mastra application as an API server
-
-Learn more in the [Mastra platform documentation](https://mastra.ai/docs/mastra-platform/overview).
+```shell
+bun run build
+```

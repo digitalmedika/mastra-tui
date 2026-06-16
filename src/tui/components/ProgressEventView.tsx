@@ -18,9 +18,10 @@ export function ProgressEventView({ event }: { event: ProgressEvent }) {
   const status = event.status ?? 'running';
   const text = status === 'error' && description ? `! ${description}` : description;
   const fg = status === 'error' ? redFg : event.label === 'READ' ? pathFg : mutedFg;
+  const marginTop = event.label === 'READ' ? 1 : 0;
 
   return (
-    <box style={{ width: '100%', flexDirection: 'column' }}>
+    <box style={{ width: '100%', flexDirection: 'column', marginTop }}>
       <box style={{ width: '100%', flexDirection: 'row', gap: 1 }}>
         <Badge label={event.label} />
         {status === 'running' ? <StreamingIndicator /> : null}
