@@ -1,6 +1,6 @@
 {
   "name": "loccle",
-  "version": "1.0.16",
+  "version": "1.0.17",
   "description": "Terminal UI for Loccle powered by Mastra and OpenTUI.",
   "module": "index.ts",
   "type": "module",
