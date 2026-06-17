@@ -13,6 +13,7 @@ import { tuiTaskList } from './tools/tui-task-list-tool';
 import { toolCallAppropriatenessScorer, completenessScorer, translationScorer } from './scorers/weather-scorer';
 
 const desktopMode = process.env.DESKTOP_MODE === 'true';
+const duckDBPath = process.env.MASTRA_DUCKDB_PATH?.trim() || (desktopMode ? ':memory:' : 'mastra.duckdb');
 
 export const mastra = new Mastra({
   workflows: { weatherWorkflow },
@@ -26,7 +27,7 @@ export const mastra = new Mastra({
       url: "file:./mastra.db",
     }),
     domains: {
-      observability: await new DuckDBStore().getStore('observability'),
+      observability: await new DuckDBStore({ path: duckDBPath }).getStore('observability'),
     }
   }),
   logger: new PinoLogger({

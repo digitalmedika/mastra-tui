@@ -6,6 +6,7 @@ interface StatusBarProps {
   modelDisplayName: string
   mastraReady: boolean
   status: string
+  activeStreamCount?: number
   usage?: TokenUsage
   balance: string | null
 }
@@ -15,11 +16,12 @@ export default function StatusBar({
   modelDisplayName,
   mastraReady,
   status,
+  activeStreamCount = 0,
   usage,
   balance,
 }: StatusBarProps) {
   const statusLabel =
-    status === 'streaming' ? 'Streaming...'
+    status === 'streaming' ? (activeStreamCount > 1 ? `${activeStreamCount} streams running` : 'Streaming...')
     : status === 'awaiting-approval' ? 'Awaiting approval'
     : status === 'finished' ? 'Ready'
     : status === 'error' ? 'Error'

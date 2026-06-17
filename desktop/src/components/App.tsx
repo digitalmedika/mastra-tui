@@ -79,12 +79,11 @@ export default function App() {
   const handleLogout = useCallback(() => {
     localStorage.removeItem('loccle-session')
     setIsAuthenticated(false)
-    const wasReady = mastraReady
     setMastraReady(false)
-    if (wasReady && electron?.stopMastra) {
+    if (electron?.stopMastra) {
       electron.stopMastra()
     }
-  }, [mastraReady])
+  }, [])
 
   useEffect(() => {
     if (!isAuthenticated) return
@@ -155,27 +154,20 @@ export default function App() {
     }
   }, [activeWorkspace?.id, isAuthenticated])
 
-  // Stop Mastra when switching away or removing active workspace
+  // Keep the Mastra server alive across workspace switches; each request carries
+  // its workspace path in requestContext, so active streams can continue.
   const handleSelectWorkspace = useCallback(async (id: string) => {
     if (activeWorkspace?.id === id) return
-    const wasReady = mastraReady
     setMastraReady(false)
-    if (wasReady && electron?.stopMastra) {
-      await electron.stopMastra()
-    }
     setActiveWorkspace(id)
-  }, [activeWorkspace?.id, mastraReady, setActiveWorkspace])
+  }, [activeWorkspace?.id, setActiveWorkspace])
 
   const handleRemoveWorkspace = useCallback(async (id: string) => {
     if (activeWorkspace?.id === id) {
-      const wasReady = mastraReady
       setMastraReady(false)
-      if (wasReady && electron?.stopMastra) {
-        await electron.stopMastra()
-      }
     }
     removeWorkspace(id)
-  }, [activeWorkspace, mastraReady, removeWorkspace])
+  }, [activeWorkspace, removeWorkspace])
 
   const handleSelectSession = useCallback(async (id: string, workspaceId: string) => {
     if (activeWorkspace?.id !== workspaceId) {
@@ -366,7 +358,8 @@ export default function App() {
         workspaceName={activeWorkspace?.name ?? 'No workspace'}
         modelDisplayName={modelDisplayName}
         mastraReady={mastraReady}
-        status={chat.status}
+        status={chat.globalStatus}
+        activeStreamCount={chat.activeStreamCount}
         balance={chat.balance}
       />
 

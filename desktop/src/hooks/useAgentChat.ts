@@ -620,13 +620,23 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
   }, [currentSessionId, updateSessionChatState])
 
   const activeState = getSessionChatState(currentSessionId || '')
+  const allStates = Object.values(sessionsChatState)
+  const activeStreamCount = allStates.filter((state) => state.isStreaming || state.status === 'streaming').length
+  const hasAwaitingApproval = allStates.some((state) => state.status === 'awaiting-approval')
+  const globalStatus = hasAwaitingApproval
+    ? 'awaiting-approval'
+    : activeStreamCount > 0
+      ? 'streaming'
+      : activeState.status
 
   return {
     messages: activeState.messages,
     tasks: activeState.tasks,
     toolEvents: activeState.toolEvents,
     status: activeState.status,
+    globalStatus,
     isStreaming: activeState.isStreaming,
+    activeStreamCount,
     allowedPaths: activeState.allowedPaths,
     balance,
     submitPrompt,

@@ -46,13 +46,6 @@ ipcMain.handle('mastra:start', async (_event, workspacePath: string) => {
     return { ok: false, error: `Path does not exist: ${workspacePath}` }
   }
 
-  // If Mastra is already running, stop it first
-  if (mastraPort !== null) {
-    await stopMastra()
-    mastraPort = null
-    currentProjectRoot = null
-  }
-
   try {
     currentProjectRoot = workspacePath
     const result = await startMastra(workspacePath)

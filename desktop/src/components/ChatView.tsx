@@ -78,6 +78,12 @@ export default function ChatView({
     : `Ask anything in ${currentWorkspace.name}... (Shift+Enter for new line)`
 
   const inputDisabled = !mastraReady || isStreaming || status === 'awaiting-approval'
+  const latestAssistantIndex = toolEvents.length > 0
+    ? messages.map((msg) => msg.role).lastIndexOf('assistant')
+    : -1
+  const renderedToolEvents = toolEvents.map((te) => (
+    <ToolEventCard key={te.id} event={te} />
+  ))
 
   return (
     <div className="chatview">
@@ -101,15 +107,14 @@ export default function ChatView({
           </div>
         )}
 
-        {/* Tool events (run, edit, read, explore, shell, task-list) */}
-        {toolEvents.map((te) => (
-          <ToolEventCard key={te.id} event={te} />
+        {messages.map((msg, index) => (
+          <React.Fragment key={msg.id}>
+            {index === latestAssistantIndex && renderedToolEvents}
+            <MessageCard message={msg} />
+          </React.Fragment>
         ))}
 
-        {/* Messages */}
-        {messages.map((msg) => (
-          <MessageCard key={msg.id} message={msg} />
-        ))}
+        {latestAssistantIndex === -1 && renderedToolEvents}
 
         {/* Streaming indicator */}
         {isStreaming && <StreamingBubble />}
