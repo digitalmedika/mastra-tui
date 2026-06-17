@@ -7,6 +7,7 @@ interface StatusBarProps {
   mastraReady: boolean
   status: string
   usage?: TokenUsage
+  balance: string | null
 }
 
 export default function StatusBar({
@@ -15,6 +16,7 @@ export default function StatusBar({
   mastraReady,
   status,
   usage,
+  balance,
 }: StatusBarProps) {
   const statusLabel =
     status === 'streaming' ? 'Streaming...'
@@ -37,6 +39,12 @@ export default function StatusBar({
         <span className="statusbar-workspace">📁 {workspaceName}</span>
         <span className="statusbar-separator">|</span>
         <span className="statusbar-model">{modelDisplayName}</span>
+        {balance !== null && (
+          <>
+            <span className="statusbar-separator">|</span>
+            <span className="statusbar-balance">💰 ${Number(balance).toFixed(2)}</span>
+          </>
+        )}
       </div>
       <div className="statusbar-right">
         {usage && (

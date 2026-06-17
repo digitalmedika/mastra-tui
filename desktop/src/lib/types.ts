@@ -31,6 +31,7 @@ export interface Session {
   title?: string
   createdAt?: string
   updatedAt?: string
+  workspaceId?: string
 }
 
 // Simplified message type for desktop UI

@@ -44,16 +44,12 @@ export default function ChatView({
 
   const handleSubmit = () => {
     const trimmed = inputValue.trim()
-    if (!trimmed || isStreaming) return
+    if (!trimmed || isStreaming || status === 'awaiting-approval') return
 
     if (trimmed === '/clear') {
       setInputValue('')
       onClear()
       return
-    }
-
-    if (trimmed.startsWith('/')) {
-      // Slash commands handled later
     }
 
     onSubmit(trimmed, currentSession)
@@ -71,15 +67,17 @@ export default function ChatView({
     ? 'Add a workspace first...'
     : !mastraReady
     ? mastraStarting
-      ? 'Starting Mastra server...'
+      ? 'Starting Loccle server...'
       : mastraError
         ? `Error: ${mastraError}`
-        : 'Waiting for Mastra...'
+        : 'Waiting for Loccle...'
     : isStreaming
     ? 'AI is responding...'
     : status === 'awaiting-approval'
     ? 'Use the approval dialog above...'
     : `Ask anything in ${currentWorkspace.name}... (Shift+Enter for new line)`
+
+  const inputDisabled = !mastraReady || isStreaming || status === 'awaiting-approval'
 
   return (
     <div className="chatview">
@@ -91,13 +89,13 @@ export default function ChatView({
             {!currentWorkspace ? (
               <p>Add a workspace from the sidebar to get started</p>
             ) : mastraStarting ? (
-              <p>Starting Mastra server for <strong>{currentWorkspace.name}</strong>...</p>
+              <p>Starting Loccle server for <strong>{currentWorkspace.name}</strong>...</p>
             ) : mastraError ? (
               <p className="message-error" style={{ textAlign: 'center' }}>{mastraError}</p>
             ) : mastraReady ? (
               <p>Ready in <strong>{currentWorkspace.name}</strong></p>
             ) : (
-              <p>Waiting for Mastra to start...</p>
+              <p>Waiting for Loccle to start...</p>
             )}
             <p className="empty-hint">Ask me to read, edit, or explore your code</p>
           </div>
@@ -127,7 +125,7 @@ export default function ChatView({
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
-            disabled={!mastraReady}
+            disabled={inputDisabled}
             rows={1}
           />
           {isStreaming ? (
@@ -138,7 +136,7 @@ export default function ChatView({
             <button
               className="btn btn-primary"
               onClick={handleSubmit}
-              disabled={!mastraReady || !inputValue.trim()}
+              disabled={inputDisabled || !inputValue.trim()}
             >
               Send
             </button>

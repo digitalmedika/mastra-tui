@@ -1,291 +1,207 @@
-import { app, ipcMain, shell, BrowserWindow, dialog } from "electron";
-import path from "node:path";
-import fs from "node:fs";
-import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
-import http from "node:http";
-let mastraProcess = null;
-let mastraPort$1 = 0;
-let mastraModelId = null;
-function getAvailablePort() {
-  return new Promise((resolve, reject) => {
-    const server = http.createServer();
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      if (address && typeof address === "object") {
-        const port = address.port;
-        server.close(() => resolve(port));
-      } else {
-        reject(new Error("Failed to find available port"));
-      }
+import { app as f, ipcMain as w, shell as _, BrowserWindow as P, dialog as j } from "electron";
+import l from "node:path";
+import p from "node:fs";
+import { fileURLToPath as T } from "node:url";
+import { spawn as I } from "node:child_process";
+import E from "node:http";
+let n = null, m = 0, u = null;
+function R() {
+  return new Promise((t, e) => {
+    const r = E.createServer();
+    r.listen(0, "127.0.0.1", () => {
+      const s = r.address();
+      if (s && typeof s == "object") {
+        const i = s.port;
+        r.close(() => t(i));
+      } else
+        e(new Error("Failed to find available port"));
     });
   });
 }
-function waitForServer(port, timeoutMs = 6e4) {
-  const startTime = Date.now();
-  return new Promise((resolve, reject) => {
-    const check = () => {
-      if (Date.now() - startTime > timeoutMs) {
-        reject(new Error(`Mastra server did not start within ${timeoutMs}ms`));
+function $(t, e = 6e4) {
+  const r = Date.now();
+  return new Promise((s, i) => {
+    const o = () => {
+      if (Date.now() - r > e) {
+        i(new Error(`Mastra server did not start within ${e}ms`));
         return;
       }
-      const req = http.request(
+      const a = E.request(
         {
           hostname: "127.0.0.1",
-          port,
+          port: t,
           path: "/api/health",
           method: "GET",
           timeout: 2e3
         },
-        (res) => {
-          if (res.statusCode === 200 || res.statusCode === 404) {
-            resolve();
-          } else {
-            setTimeout(check, 500);
-          }
+        (g) => {
+          g.statusCode === 200 || g.statusCode === 404 ? s() : setTimeout(o, 500);
         }
       );
-      req.on("error", () => {
-        setTimeout(check, 500);
-      });
-      req.end();
+      a.on("error", () => {
+        setTimeout(o, 500);
+      }), a.end();
     };
-    setTimeout(check, 1e3);
+    setTimeout(o, 1e3);
   });
 }
-function findPackageManager(cwd) {
-  if (fs.existsSync(path.join(cwd, "package-lock.json"))) {
-    return { command: "npm", args: ["run", "dev"] };
-  }
-  if (fs.existsSync(path.join(cwd, "pnpm-lock.yaml"))) {
-    return { command: "pnpm", args: ["run", "dev"] };
-  }
-  if (fs.existsSync(path.join(cwd, "yarn.lock"))) {
-    return { command: "yarn", args: ["dev"] };
-  }
-  if (fs.existsSync(path.join(cwd, "bun.lockb")) || fs.existsSync(path.join(cwd, "bun.lock"))) {
-    return { command: "bun", args: ["run", "dev"] };
-  }
-  return { command: "npm", args: ["run", "dev"] };
+function D(t) {
+  return p.existsSync(l.join(t, "package-lock.json")) ? { command: "npm", args: ["run", "dev"] } : p.existsSync(l.join(t, "pnpm-lock.yaml")) ? { command: "pnpm", args: ["run", "dev"] } : p.existsSync(l.join(t, "yarn.lock")) ? { command: "yarn", args: ["dev"] } : p.existsSync(l.join(t, "bun.lockb")) || p.existsSync(l.join(t, "bun.lock")) ? { command: "bun", args: ["run", "dev"] } : { command: "npm", args: ["run", "dev"] };
 }
-function isValidMastraProject(cwd) {
-  var _a;
-  const pkgPath = path.join(cwd, "package.json");
-  if (!fs.existsSync(pkgPath)) return false;
+function x(t) {
+  var r;
+  const e = l.join(t, "package.json");
+  if (!p.existsSync(e)) return !1;
   try {
-    const raw = fs.readFileSync(pkgPath, "utf8");
-    const pkg = JSON.parse(raw);
-    const devScript = (_a = pkg.scripts) == null ? void 0 : _a.dev;
-    if (!devScript || typeof devScript !== "string") return false;
-    return /\bmastra\s+dev\b/.test(devScript);
+    const s = p.readFileSync(e, "utf8"), o = (r = JSON.parse(s).scripts) == null ? void 0 : r.dev;
+    return !o || typeof o != "string" ? !1 : /\bmastra\s+dev\b/.test(o);
   } catch {
-    return false;
+    return !1;
   }
 }
-async function resolveBackendDefaultModelId() {
-  var _a, _b, _c, _d;
-  const envModel = (_a = process.env.OPENAI_COMPATIBLE_MODEL) == null ? void 0 : _a.trim();
-  if (envModel) {
-    return envModel;
-  }
-  const authServerUrl = ((_b = process.env.AUTH_SERVER_URL) == null ? void 0 : _b.trim()) || "https://api.loccle.com";
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5e3);
+async function O() {
+  var i, o, a, g;
+  const t = (i = process.env.OPENAI_COMPATIBLE_MODEL) == null ? void 0 : i.trim();
+  if (t)
+    return t;
+  const e = ((o = process.env.AUTH_SERVER_URL) == null ? void 0 : o.trim()) || "https://api.loccle.com", r = new AbortController(), s = setTimeout(() => r.abort(), 5e3);
   try {
-    const response = await fetch(`${authServerUrl}/api/catalog/models`, {
-      signal: controller.signal
+    const h = await fetch(`${e}/api/catalog/models`, {
+      signal: r.signal
     });
-    if (!response.ok) {
-      console.error(`[Mastra Manager] Failed to fetch model catalog: HTTP ${response.status}`);
-      return null;
-    }
-    const body = await response.json();
-    const firstModelId = (_d = (_c = body.data) == null ? void 0 : _c.find((model) => typeof model.publicModelId === "string" && model.publicModelId.trim())) == null ? void 0 : _d.publicModelId;
-    return typeof firstModelId === "string" ? firstModelId : null;
-  } catch (err) {
-    console.error("[Mastra Manager] Failed to fetch model catalog:", err);
-    return null;
+    if (!h.ok)
+      return console.error(`[Mastra Manager] Failed to fetch model catalog: HTTP ${h.status}`), null;
+    const v = (g = (a = (await h.json()).data) == null ? void 0 : a.find((S) => typeof S.publicModelId == "string" && S.publicModelId.trim())) == null ? void 0 : g.publicModelId;
+    return typeof v == "string" ? v : null;
+  } catch (h) {
+    return console.error("[Mastra Manager] Failed to fetch model catalog:", h), null;
   } finally {
-    clearTimeout(timeout);
+    clearTimeout(s);
   }
 }
-function findMastraProjectRoot(startDir = path.dirname(fileURLToPath(import.meta.url))) {
-  let dir = startDir;
-  while (true) {
-    if (isValidMastraProject(dir)) {
-      return dir;
-    }
-    const parent = path.dirname(dir);
-    if (parent === dir) {
+function L(t = l.dirname(T(import.meta.url))) {
+  let e = t;
+  for (; ; ) {
+    if (x(e))
+      return e;
+    const r = l.dirname(e);
+    if (r === e)
       return null;
-    }
-    dir = parent;
+    e = r;
   }
 }
-async function startMastra(workspaceRoot) {
-  var _a, _b;
-  if (mastraProcess) {
-    return { port: mastraPort$1, modelId: mastraModelId };
-  }
-  const mastraProjectRoot = findMastraProjectRoot();
-  if (!mastraProjectRoot) {
+async function A(t) {
+  var i, o;
+  if (n)
+    return { port: m, modelId: u };
+  const e = L();
+  if (!e)
     throw new Error(
       'Loccle Mastra app could not be found. The desktop app must be launched from a project with a "dev" script that runs "mastra dev".'
     );
-  }
-  mastraPort$1 = await getAvailablePort();
-  mastraModelId = await resolveBackendDefaultModelId();
-  console.log(
-    `[Mastra Manager] Starting server on port ${mastraPort$1}, app: ${mastraProjectRoot}, workspace: ${workspaceRoot}, model: ${mastraModelId ?? "(default)"}`
+  m = await R(), u = await O(), console.log(
+    `[Mastra Manager] Starting server on port ${m}, app: ${e}, workspace: ${t}, model: ${u ?? "(default)"}`
   );
-  const { command, args } = findPackageManager(mastraProjectRoot);
-  mastraProcess = spawn(command, args, {
-    cwd: mastraProjectRoot,
+  const { command: r, args: s } = D(e);
+  return n = I(r, s, {
+    cwd: e,
     env: {
       ...process.env,
       DESKTOP_MODE: "true",
-      VIBE_CODING_WORKSPACE_PATH: workspaceRoot,
-      ...mastraModelId ? { OPENAI_COMPATIBLE_MODEL: mastraModelId } : {},
-      PORT: String(mastraPort$1),
-      MASTRA_PORT: String(mastraPort$1)
+      VIBE_CODING_WORKSPACE_PATH: t,
+      ...u ? { OPENAI_COMPATIBLE_MODEL: u } : {},
+      PORT: String(m),
+      MASTRA_PORT: String(m)
     },
     stdio: ["ignore", "pipe", "pipe"],
     shell: process.platform === "win32"
-  });
-  (_a = mastraProcess.stdout) == null ? void 0 : _a.on("data", (data) => {
-    console.log(`[Mastra] ${data.toString().trim()}`);
-  });
-  (_b = mastraProcess.stderr) == null ? void 0 : _b.on("data", (data) => {
-    console.error(`[Mastra:err] ${data.toString().trim()}`);
-  });
-  mastraProcess.on("exit", (code) => {
-    console.log(`[Mastra Manager] Mastra process exited with code ${code}`);
-    mastraProcess = null;
-  });
-  mastraProcess.on("error", (err) => {
-    console.error("[Mastra Manager] Mastra process error:", err);
-    mastraProcess = null;
-  });
-  await waitForServer(mastraPort$1);
-  return { port: mastraPort$1, modelId: mastraModelId };
+  }), (i = n.stdout) == null || i.on("data", (a) => {
+    console.log(`[Mastra] ${a.toString().trim()}`);
+  }), (o = n.stderr) == null || o.on("data", (a) => {
+    console.error(`[Mastra:err] ${a.toString().trim()}`);
+  }), n.on("exit", (a) => {
+    console.log(`[Mastra Manager] Mastra process exited with code ${a}`), n = null;
+  }), n.on("error", (a) => {
+    console.error("[Mastra Manager] Mastra process error:", a), n = null;
+  }), await $(m), { port: m, modelId: u };
 }
-async function stopMastra() {
-  if (!mastraProcess) return;
-  console.log("[Mastra Manager] Stopping Mastra server...");
-  return new Promise((resolve) => {
-    if (!mastraProcess) {
-      resolve();
-      return;
-    }
-    mastraProcess.on("exit", () => {
-      mastraProcess = null;
-      mastraModelId = null;
-      resolve();
-    });
-    if (process.platform === "win32") {
-      mastraProcess.kill();
-    } else {
-      mastraProcess.kill("SIGTERM");
-    }
-    setTimeout(() => {
-      if (mastraProcess) {
-        mastraProcess.kill("SIGKILL");
-        mastraProcess = null;
-        mastraModelId = null;
+async function y() {
+  if (n)
+    return console.log("[Mastra Manager] Stopping Mastra server..."), new Promise((t) => {
+      if (!n) {
+        t();
+        return;
       }
-      resolve();
-    }, 5e3);
-  });
+      if (n.on("exit", () => {
+        n = null, u = null, process.platform === "win32" ? setTimeout(t, 1e3) : t();
+      }), process.platform === "win32") {
+        const e = n.pid;
+        e ? I("taskkill", ["/F", "/T", "/PID", String(e)], { stdio: "ignore" }) : n.kill();
+      } else
+        n.kill("SIGTERM");
+      setTimeout(() => {
+        n && (n.kill("SIGKILL"), n = null, u = null), t();
+      }, 5e3);
+    });
 }
-const __filename$1 = fileURLToPath(import.meta.url);
-const __dirname$1 = path.dirname(__filename$1);
-let mainWindow = null;
-let mastraPort = null;
-let currentProjectRoot = null;
-const isDev = !app.isPackaged;
-async function createWindow() {
-  mainWindow = new BrowserWindow({
+const F = T(import.meta.url), k = l.dirname(F);
+let d = null, c = null, M = null;
+const C = !f.isPackaged;
+async function b() {
+  if (d = new P({
     width: 1280,
     height: 820,
     minWidth: 900,
     minHeight: 600,
     title: "Loccle Desktop",
     webPreferences: {
-      preload: path.join(__dirname$1, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false
+      preload: l.join(k, "preload.js"),
+      contextIsolation: !0,
+      nodeIntegration: !1
     }
-  });
-  if (isDev) {
-    const devServerUrl = process.env.VITE_DEV_SERVER_URL || "http://localhost:5173";
-    await mainWindow.loadURL(devServerUrl);
-    mainWindow.webContents.openDevTools();
-  } else {
-    await mainWindow.loadFile(path.join(__dirname$1, "..", "dist", "index.html"));
-  }
-  mainWindow.on("closed", () => {
-    mainWindow = null;
+  }), C) {
+    const t = process.env.VITE_DEV_SERVER_URL || "http://localhost:5173";
+    await d.loadURL(t), d.webContents.openDevTools();
+  } else
+    await d.loadFile(l.join(k, "..", "dist", "index.html"));
+  d.on("closed", () => {
+    d = null;
   });
 }
-ipcMain.handle("mastra:start", async (_event, workspacePath) => {
-  if (!workspacePath || !fs.existsSync(workspacePath)) {
-    return { ok: false, error: `Path does not exist: ${workspacePath}` };
-  }
-  if (mastraPort !== null) {
-    await stopMastra();
-    mastraPort = null;
-    currentProjectRoot = null;
-  }
+w.handle("mastra:start", async (t, e) => {
+  if (!e || !p.existsSync(e))
+    return { ok: !1, error: `Path does not exist: ${e}` };
+  c !== null && (await y(), c = null, M = null);
   try {
-    currentProjectRoot = workspacePath;
-    const result = await startMastra(workspacePath);
-    mastraPort = result.port;
-    console.log(`[Desktop] Mastra server ready on port ${mastraPort}, workspace: ${workspacePath}`);
-    return { ok: true, url: `http://localhost:${mastraPort}`, modelId: result.modelId };
-  } catch (err) {
-    console.error("[Desktop] Failed to start Mastra:", err);
-    return { ok: false, error: err.message || String(err) };
+    M = e;
+    const r = await A(e);
+    return c = r.port, console.log(`[Desktop] Mastra server ready on port ${c}, workspace: ${e}`), { ok: !0, url: `http://localhost:${c}`, modelId: r.modelId };
+  } catch (r) {
+    return console.error("[Desktop] Failed to start Mastra:", r), { ok: !1, error: r.message || String(r) };
   }
 });
-ipcMain.handle("mastra:stop", async () => {
-  await stopMastra();
-  mastraPort = null;
-  currentProjectRoot = null;
-  return { ok: true };
-});
-ipcMain.handle("dialog:openFolder", async () => {
-  if (!mainWindow) return null;
-  const result = await dialog.showOpenDialog(mainWindow, {
+w.handle("mastra:stop", async () => (await y(), c = null, M = null, { ok: !0 }));
+w.handle("dialog:openFolder", async () => {
+  if (!d) return null;
+  const t = await j.showOpenDialog(d, {
     properties: ["openDirectory"],
     title: "Select Workspace Folder"
   });
-  if (result.canceled || result.filePaths.length === 0) return null;
-  return result.filePaths[0];
+  return t.canceled || t.filePaths.length === 0 ? null : t.filePaths[0];
 });
-ipcMain.handle("mastra:status", () => {
-  return {
-    running: mastraPort !== null,
-    url: mastraPort ? `http://localhost:${mastraPort}` : null,
-    workspaceRoot: currentProjectRoot
-  };
+w.handle("mastra:status", () => ({
+  running: c !== null,
+  url: c ? `http://localhost:${c}` : null,
+  workspaceRoot: M
+}));
+w.handle("shell:openExternal", async (t, e) => !e || !/^https?:\/\//.test(e) ? { ok: !1, error: "Invalid URL" } : (await _.openExternal(e), { ok: !0 }));
+f.whenReady().then(b);
+f.on("window-all-closed", async () => {
+  await y(), f.quit();
 });
-ipcMain.handle("shell:openExternal", async (_event, url) => {
-  if (!url || !/^https?:\/\//.test(url)) {
-    return { ok: false, error: "Invalid URL" };
-  }
-  await shell.openExternal(url);
-  return { ok: true };
+f.on("before-quit", async () => {
+  await y();
 });
-app.whenReady().then(createWindow);
-app.on("window-all-closed", async () => {
-  await stopMastra();
-  app.quit();
-});
-app.on("before-quit", async () => {
-  await stopMastra();
-});
-app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
-  }
+f.on("activate", () => {
+  P.getAllWindows().length === 0 && b();
 });

@@ -49,7 +49,7 @@ export default function MessageCard({ message }: MessageCardProps) {
         {renderMarkdown(message.content)}
       </div>
       {message.status === 'error' && !message.content && (
-        <div className="message-error">Failed to get response. Check the Mastra server connection.</div>
+        <div className="message-error">Failed to get response. Check the Loccle server connection.</div>
       )}
     </div>
   )

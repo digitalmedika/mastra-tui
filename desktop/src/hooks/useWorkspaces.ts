@@ -18,12 +18,13 @@ export function useWorkspaces() {
 
   const activeWorkspace = getActiveWorkspace()
 
-  const addWorkspace = useCallback(async (name: string, path?: string) => {
-    const folderPath = path ?? (window as any).electronAPI?.openFolderDialog
+  const addWorkspace = useCallback(async () => {
+    const folderPath = (window as any).electronAPI?.openFolderDialog
       ? await (window as any).electronAPI.openFolderDialog()
       : prompt('Enter workspace path:')
 
     if (!folderPath) return null
+    const name = folderPath.split(/[/\\]/).filter(Boolean).pop() || 'Workspace'
     const ws = addWs(name, folderPath)
     refresh()
     return ws

@@ -219,12 +219,21 @@ export async function stopMastra(): Promise<void> {
     mastraProcess.on('exit', () => {
       mastraProcess = null
       mastraModelId = null
-      resolve()
+      if (process.platform === 'win32') {
+        setTimeout(resolve, 1000)
+      } else {
+        resolve()
+      }
     })
 
     // Graceful shutdown
     if (process.platform === 'win32') {
-      mastraProcess.kill()
+      const pid = mastraProcess.pid
+      if (pid) {
+        spawn('taskkill', ['/F', '/T', '/PID', String(pid)], { stdio: 'ignore' })
+      } else {
+        mastraProcess.kill()
+      }
     } else {
       mastraProcess.kill('SIGTERM')
     }

@@ -235,6 +235,99 @@ html, body, #root {
   border-top: 1px solid var(--border-color);
 }
 
+/* Tree styling */
+.sidebar-workspace-node {
+  margin-bottom: 12px;
+}
+
+.sidebar-workspace-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.sidebar-workspace-row:hover {
+  background: var(--bg-hover);
+}
+
+.sidebar-workspace-row.active {
+  background: var(--bg-active);
+  color: var(--accent-purple-light);
+}
+
+.sidebar-workspace-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.sidebar-workspace-row:hover .sidebar-workspace-actions {
+  opacity: 1;
+}
+
+.sidebar-workspace-row:hover .sidebar-item-action {
+  opacity: 1;
+}
+
+.sidebar-sessions-list {
+  margin-left: 18px;
+  padding-left: 8px;
+  border-left: 1px dashed var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.sidebar-session-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 13px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.sidebar-session-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.sidebar-session-item.active {
+  background: var(--bg-active);
+  color: var(--accent-purple-light);
+  font-weight: 500;
+}
+
+.sidebar-session-icon {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.sidebar-session-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-session-action {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.sidebar-session-item:hover .sidebar-session-action {
+  opacity: 1;
+}
+
 /* === ChatView === */
 .chatview {
   grid-column: 2;
