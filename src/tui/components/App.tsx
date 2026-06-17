@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { useKeyboard, useTerminalDimensions } from '@opentui/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { clearSession, getStoredSession } from '../auth/storage';
@@ -297,7 +298,12 @@ export function App({ onExit }: { onExit: () => void }) {
         : process.platform === 'win32'
           ? ['cmd', '/c', 'start', '', url]
           : ['xdg-open', url];
-    Bun.spawn(cmd, { stdout: 'ignore', stderr: 'ignore', stdin: 'ignore' });
+    const child = spawn(cmd[0], cmd.slice(1), {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    child.unref();
   }, []);
 
   const handlePaymentSelect = useCallback(async (amountIdr: number) => {

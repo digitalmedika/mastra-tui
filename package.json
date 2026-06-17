@@ -1,25 +1,24 @@
 {
   "name": "loccle",
-  "version": "1.0.17",
+  "version": "1.0.18",
   "description": "Terminal UI for Loccle powered by Mastra and OpenTUI.",
-  "module": "index.ts",
+  "main": "dist/tui/cli.js",
+  "module": "dist/tui/cli.js",
+  "exports": "./dist/tui/cli.js",
   "type": "module",
   "bin": {
-    "loccle": "bin/mastra-tui.ts",
-    "mastra-tui": "bin/mastra-tui.ts"
+    "loccle": "dist/tui/cli.js",
+    "mastra-tui": "dist/tui/cli.js"
   },
   "files": [
-    "bin/**/*",
-    "src/**/*.ts",
-    "src/**/*.tsx",
-    "index.ts",
-    "tsconfig.json",
+    "dist/tui/**/*",
     "README.md"
   ],
   "devDependencies": {
     "@types/bun": "latest",
     "@types/node": "^25.9.3",
     "@types/react": "^19.2.0",
+    "esbuild": "^0.27.7",
     "mastra": "^1.13.0"
   },
   "peerDependencies": {
@@ -29,8 +28,10 @@
     "node": ">=22.13.0"
   },
   "scripts": {
+    "build:tui": "node scripts/build-tui.mjs",
     "dev": "mastra dev",
     "build": "mastra build",
+    "prepack": "npm run build:tui",
     "tui": "bun run src/tui/index.tsx",
     "start": "mastra start"
   },

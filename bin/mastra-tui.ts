@@ -1,10 +1,11 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
+
+declare const __PACKAGE_VERSION__: string;
 
 const [, , ...args] = process.argv;
 
 if (args.includes('-v') || args.includes('--version')) {
-  const pkg = await import('../package.json', { with: { type: 'json' } });
-  console.log(pkg.default.version);
+  console.log(__PACKAGE_VERSION__);
   process.exit(0);
 }
 
@@ -19,3 +20,5 @@ Options:
 }
 
 await import('../src/tui/index');
+
+export {};

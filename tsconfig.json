@@ -4,7 +4,7 @@
     "module": "ES2022",
     "moduleResolution": "bundler",
     "lib": ["ESNext", "DOM"],
-    "types": ["bun"],
+    "types": ["node"],
     "jsx": "react-jsx",
     "jsxImportSource": "@opentui/react",
     "esModuleInterop": true,
@@ -15,6 +15,7 @@
     "outDir": "dist"
   },
   "include": [
+    "bin/**/*",
     "src/**/*"
   ]
 }

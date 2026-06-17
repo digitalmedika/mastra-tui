@@ -7,7 +7,14 @@ Terminal UI for Loccle, powered by [Mastra](https://mastra.ai/) and OpenTUI.
 Run the TUI:
 
 ```shell
-bunx loccle
+npx loccle
+```
+
+Or install it globally:
+
+```shell
+npm i -g loccle
+loccle
 ```
 
 The CLI uses `https://api.loccle.com` as its backend by default. Set
