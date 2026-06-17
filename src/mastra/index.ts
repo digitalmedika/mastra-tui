@@ -24,7 +24,7 @@ export const mastra = new Mastra({
     id: 'composite-storage',
     default: new LibSQLStore({
       id: "mastra-storage",
-      url: "file:./.loccle/mastra.db",
+      url: "file:./.loccle/loccle.db",
     }),
     domains: {
       observability: await new DuckDBStore({ path: duckDBPath }).getStore('observability'),
