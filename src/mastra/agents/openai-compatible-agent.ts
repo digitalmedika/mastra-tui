@@ -17,7 +17,7 @@ const authServerUrl = process.env.AUTH_SERVER_URL ?? 'https://api.loccle.com';
 const explicitBaseUrl = process.env.OPENAI_COMPATIBLE_BASE_URL?.trim();
 const baseUrl = explicitBaseUrl || `${authServerUrl}/v1`;
 const envApiKey = process.env.OPENAI_COMPATIBLE_API_KEY ?? process.env.OPENAI_API_KEY ?? '';
-const defaultMemoryPath = path.join(projectRoot, 'openai-compatible-agent-memory.db');
+const defaultMemoryPath = path.join(projectRoot, '.loccle', 'openai-compatible-agent-memory.db');
 fs.mkdirSync(path.dirname(defaultMemoryPath), { recursive: true });
 const memoryUrl = process.env.OPENAI_COMPATIBLE_MEMORY_URL ?? `file:${defaultMemoryPath.replace(/\\/g, '/')}`;
 

@@ -38,6 +38,7 @@ output.txt
 node_modules
 dist
 .mastra
+.loccle
 .env.development
 .env
 *.db

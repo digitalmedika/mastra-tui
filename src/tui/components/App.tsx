@@ -6,6 +6,7 @@ import { useAgentStream } from '../hooks';
 import { assistantMarkerFg, greenFg, inputBorderFg, mutedFg, redFg, runBg, textFg } from '../constants';
 import { toSessionOption } from '../utils';
 import { refreshAgent } from '../../mastra/agents/openai-compatible-agent';
+import { checkVersion, type VersionCheckResult } from '../version-check';
 import type { ApprovalEvent, StreamEvent } from '../types';
 import { ApprovalOverlay } from './ApprovalOverlay';
 import { Badge } from './Badge';
@@ -14,6 +15,7 @@ import { StreamingIndicator } from './StreamingIndicator';
 import { TaskListPanel } from './TaskListPanel';
 import { StreamView } from './StreamView';
 import { PaymentOverlay, PAYMENT_AMOUNTS, type PaymentData, type PaymentPhase } from './PaymentOverlay';
+import pkg from '../../../package.json';
 
 const hasPositiveBalance = (value: string | null) => {
   const numeric = Number(value);
@@ -62,6 +64,7 @@ export function App({ onExit }: { onExit: () => void }) {
   const [paymentData, setPaymentData] = useState<PaymentData | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
+  const [versionResult, setVersionResult] = useState<VersionCheckResult | null>(null);
   const [approvalSelectedIndex, setApprovalSelectedIndex] = useState(0);
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
   const { width: terminalWidth } = useTerminalDimensions();
@@ -114,6 +117,10 @@ export function App({ onExit }: { onExit: () => void }) {
         clearSession();
         setIsAuthenticated(false);
       });
+  }, []);
+
+  useEffect(() => {
+    checkVersion(pkg.version).then(setVersionResult).catch(() => setVersionResult(null));
   }, []);
 
   useEffect(() => {
@@ -565,6 +572,23 @@ export function App({ onExit }: { onExit: () => void }) {
         />
         {status === 'streaming' ? <StreamingIndicator /> : null}
       </box>
+      {versionResult?.hasUpdate && versionResult.latest ? (
+        <box
+          style={{
+            width: '100%',
+            height: 1,
+            flexDirection: 'row',
+            flexShrink: 0,
+            paddingLeft: 1,
+            paddingRight: 1,
+          }}
+        >
+          <text
+            content={`Update tersedia: v${versionResult.current} → v${versionResult.latest}. Jalankan "npm i -g loccle@latest" untuk update.`}
+            style={{ fg: '#FFD700' }}
+          />
+        </box>
+      ) : null}
       <box
         style={{
           width: '100%',
