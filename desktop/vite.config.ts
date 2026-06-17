@@ -28,10 +28,17 @@ export default defineConfig({
           args.startup()
         },
         vite: {
+          define: {
+            'process.env.WS_NO_BUFFER_UTIL': JSON.stringify('true'),
+            'process.env.WS_NO_UTF_8_VALIDATE': JSON.stringify('true'),
+          },
           build: {
             outDir,
             rollupOptions: {
-              external: ['electron'],
+              external: (id) => id === 'electron' || id.startsWith('@libsql/'),
+              output: {
+                inlineDynamicImports: true,
+              },
             },
           },
         },

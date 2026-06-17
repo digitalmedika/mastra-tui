@@ -1,8 +1,12 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
+import { MastraClient } from '@mastra/client-js'
 import path from 'node:path'
 import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { startMastra, stopMastra } from './mastra-manager'
+import { cancelAgentStream, respondAgentApproval, startAgentStream } from './agent-runner'
+import { clearSession, storeSession } from '../../src/tui/auth/storage'
+import { refreshAgent, setModelIdAndRefresh } from '../../src/mastra/agents/openai-compatible-agent'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -10,8 +14,21 @@ const __dirname = path.dirname(__filename)
 let mainWindow: BrowserWindow | null = null
 let mastraPort: number | null = null
 let currentProjectRoot: string | null = null
+let mastraClient: MastraClient | null = null
 
 const isDev = !app.isPackaged
+
+function getMastraClient() {
+  if (!mastraPort) {
+    throw new Error('Mastra server is not running')
+  }
+  if (!mastraClient) {
+    mastraClient = new MastraClient({
+      baseUrl: `http://localhost:${mastraPort}`,
+    })
+  }
+  return mastraClient
+}
 
 async function createWindow() {
   mainWindow = new BrowserWindow({
@@ -50,6 +67,12 @@ ipcMain.handle('mastra:start', async (_event, workspacePath: string) => {
     currentProjectRoot = workspacePath
     const result = await startMastra(workspacePath)
     mastraPort = result.port
+    mastraClient = null
+    if (result.modelId) {
+      setModelIdAndRefresh(result.modelId)
+    } else {
+      refreshAgent()
+    }
     console.log(`[Desktop] Mastra server ready on port ${mastraPort}, workspace: ${workspacePath}`)
     return { ok: true, url: `http://localhost:${mastraPort}`, modelId: result.modelId }
   } catch (err: any) {
@@ -62,6 +85,7 @@ ipcMain.handle('mastra:start', async (_event, workspacePath: string) => {
 ipcMain.handle('mastra:stop', async () => {
   await stopMastra()
   mastraPort = null
+  mastraClient = null
   currentProjectRoot = null
   return { ok: true }
 })
@@ -84,6 +108,51 @@ ipcMain.handle('mastra:status', () => {
     url: mastraPort ? `http://localhost:${mastraPort}` : null,
     workspaceRoot: currentProjectRoot,
   }
+})
+
+ipcMain.handle('auth:setSession', async (_event, session: { token?: string }) => {
+  if (!session?.token) {
+    return { ok: false, error: 'Missing token' }
+  }
+  storeSession({ token: session.token })
+  refreshAgent()
+  return { ok: true }
+})
+
+ipcMain.handle('auth:clearSession', async () => {
+  clearSession()
+  refreshAgent()
+  return { ok: true }
+})
+
+ipcMain.handle('agent:stream:start', async (event, payload) => {
+  startAgentStream(payload, event.sender)
+  return { ok: true }
+})
+
+ipcMain.handle('agent:approval:respond', async (_event, payload) => {
+  return respondAgentApproval(payload)
+})
+
+ipcMain.handle('agent:stream:cancel', async (_event, sessionId: string) => {
+  return cancelAgentStream(sessionId)
+})
+
+ipcMain.handle('memory:listThreads', async (_event, params) => {
+  return getMastraClient().listMemoryThreads(params)
+})
+
+ipcMain.handle('memory:createThread', async (_event, params) => {
+  return getMastraClient().createMemoryThread(params)
+})
+
+ipcMain.handle('memory:deleteThread', async (_event, threadId: string, opts) => {
+  await getMastraClient().deleteThread(threadId, opts)
+  return { ok: true }
+})
+
+ipcMain.handle('memory:listThreadMessages', async (_event, threadId: string, opts) => {
+  return getMastraClient().listThreadMessages(threadId, opts)
 })
 
 // IPC: Open external URL in default browser

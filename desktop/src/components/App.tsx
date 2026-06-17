@@ -51,6 +51,7 @@ export default function App() {
         })
           .then((res) => {
             if (!res.ok) throw new Error('Session invalid')
+            void electron?.setAuthSession?.({ token: session.token })
             setIsAuthenticated(true)
             void chat.refreshBalance()
           })
@@ -72,12 +73,14 @@ export default function App() {
 
   const handleLogin = useCallback((token: string) => {
     localStorage.setItem('loccle-session', JSON.stringify({ token, loginAt: Date.now() }))
+    void electron?.setAuthSession?.({ token })
     setIsAuthenticated(true)
     void chat.refreshBalance()
   }, [chat.refreshBalance])
 
   const handleLogout = useCallback(() => {
     localStorage.removeItem('loccle-session')
+    void electron?.clearAuthSession?.()
     setIsAuthenticated(false)
     setMastraReady(false)
     if (electron?.stopMastra) {

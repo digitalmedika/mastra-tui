@@ -11,6 +11,7 @@
     "skipLibCheck": true,
     "ignoreDeprecations": "6.0",
     "noEmit": true,
+    "rootDir": "..",
     "outDir": "dist",
     "baseUrl": ".",
     "paths": {

@@ -3,9 +3,12 @@ import { getAgent, getMastraUrl, getMastraClient } from '../lib/mastra-client'
 import { getActiveWorkspace } from '../lib/workspace-store'
 import type { Message, TaskItem, ToolEvent, StreamState, Session } from '../lib/types'
 
+const electron = (window as any).electronAPI
 const workspacePathContextKey = 'mastra-tui.workspacePath'
 const allowedExternalWorkspacePathsKey = 'mastra-tui.allowedExternalWorkspacePaths'
 const AUTH_SERVER_URL = 'https://api.loccle.com'
+const configuredMaxSteps = Number(import.meta.env.VITE_VIBE_CODING_MAX_STEPS)
+const agentMaxSteps = Number.isFinite(configuredMaxSteps) && configuredMaxSteps > 0 ? configuredMaxSteps : 40
 
 function generateId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
@@ -95,12 +98,22 @@ function getStringArg(args: any, keys: string[]): string | undefined {
 }
 
 const extractMemoryMessageText = (content: unknown): string => {
-  if (typeof content === 'string') return content
+  if (typeof content === 'string') {
+    const trimmed = content.trim()
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      try {
+        return extractMemoryMessageText(JSON.parse(trimmed))
+      } catch {
+        return content
+      }
+    }
+    return content
+  }
 
   if (Array.isArray(content)) {
     return content
-      .filter((part) => typeof part === 'object' && part !== null && !Array.isArray(part) && part.type === 'text' && typeof part.text === 'string')
-      .map((part) => (part as { text: string }).text)
+      .map((part) => extractMemoryMessageText(part))
+      .filter(Boolean)
       .join('\n')
   }
 
@@ -114,8 +127,9 @@ const extractMemoryMessageText = (content: unknown): string => {
   if (!Array.isArray(parts)) return ''
 
   return parts
-    .filter((part) => typeof part === 'object' && part !== null && !Array.isArray(part) && part.type === 'text' && typeof part.text === 'string')
-    .map((part) => (part as { text: string }).text)
+    .filter((part) => typeof part === 'object' && part !== null && !Array.isArray(part) && (part as Record<string, unknown>).type === 'text')
+    .map((part) => extractMemoryMessageText(part))
+    .filter(Boolean)
     .join('\n')
 }
 
@@ -234,10 +248,12 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
     const load = async () => {
       if (!mastraReadyRef.current) return
       try {
-        const client = getMastraClient()
-        const res = await client.listThreadMessages(currentSessionId, {
+        const opts = {
           agentId: 'openAICompatibleAgent',
-        })
+        }
+        const res = electron?.listThreadMessages
+          ? await electron.listThreadMessages(currentSessionId, opts)
+          : await getMastraClient().listThreadMessages(currentSessionId, opts)
         if (cancelled || !mastraReadyRef.current) return
 
         let formatted: Message[] = []
@@ -252,7 +268,7 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
                 status: 'complete' as const,
               }
             })
-            .filter((m) => m.content.trim())
+            .filter((m: Message) => m.content.trim())
         }
 
         updateSessionChatState(currentSessionId, {
@@ -379,30 +395,22 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
       const allowedRoots = [workspacePath, ...allowedPaths]
       const requiresUserApproval = approvalPath ? !isPathWithinAllowedRoots(approvalPath, allowedRoots) : false
 
-      if (requiresUserApproval) {
-        updateSessionChatState(sessionId, {
-          status: 'awaiting-approval',
-        })
-        const toolEvent: ToolEvent = {
-          id: toolCallId,
-          type: 'approval',
-          label: 'APPROVE',
-          status: 'pending',
-          summary: `${toolName}`,
-          path: approvalPath,
-          details: JSON.stringify({ runId, toolCallId, toolName, approvalPath }),
-        }
-        updateSessionChatState(sessionId, (prev) => ({
-          ...prev,
-          toolEvents: [...prev.toolEvents, toolEvent]
-        }))
-      } else {
-        if (approvalPath) {
-          void resumeApproval(sessionId, runId, toolCallId, true, approvalPath, assistantMsgId)
-        } else {
-          void resumeApproval(sessionId, runId, toolCallId, true, undefined, assistantMsgId)
-        }
+      updateSessionChatState(sessionId, {
+        status: 'awaiting-approval',
+      })
+      const toolEvent: ToolEvent = {
+        id: toolCallId,
+        type: 'approval',
+        label: 'APPROVE',
+        status: 'pending',
+        summary: `${toolName}`,
+        path: approvalPath,
+        details: JSON.stringify({ runId, toolCallId, toolName, approvalPath, requiresUserApproval }),
       }
+      updateSessionChatState(sessionId, (prev) => ({
+        ...prev,
+        toolEvents: [...prev.toolEvents, toolEvent]
+      }))
     }
 
     if (chunk.type === 'finish' || chunk.type === 'step-finish') {
@@ -431,6 +439,45 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
       }
     }
   }, [handleTaskListChunk, getSessionChatState, updateSessionChatState])
+
+  useEffect(() => {
+    if (!electron?.onAgentStreamEvent) return
+
+    return electron.onAgentStreamEvent((event: any) => {
+      const sessionId = event?.sessionId
+      const assistantMsgId = event?.assistantMsgId
+      if (!sessionId) return
+
+      if (event.type === 'chunk') {
+        void handleStreamChunk(sessionId, event.chunk, assistantMsgId || '')
+        return
+      }
+
+      if (event.type === 'done' || event.type === 'cancelled') {
+        updateSessionChatState(sessionId, (prev) => {
+          const messages = prev.messages.map((m) =>
+            m.id === assistantMsgId ? { ...m, status: 'complete' as const } : m
+          )
+          return { ...prev, messages, status: event.type === 'done' ? 'finished' as const : 'idle' as const, isStreaming: false }
+        })
+        if (event.type === 'done') {
+          void refreshBalance()
+        }
+        return
+      }
+
+      if (event.type === 'error') {
+        updateSessionChatState(sessionId, (prev) => {
+          const messages = prev.messages.map((m) =>
+            m.id === assistantMsgId
+              ? { ...m, status: 'error' as const, content: m.content || `Error: ${event.error || 'request failed'}` }
+              : m
+          )
+          return { ...prev, messages, status: 'error' as const, isStreaming: false }
+        })
+      }
+    })
+  }, [handleStreamChunk, refreshBalance, updateSessionChatState])
 
   const resumeApproval = useCallback(async (
     sessionId: string,
@@ -463,6 +510,14 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
     }))
 
     try {
+      if (electron?.respondAgentApproval) {
+        const result = await electron.respondAgentApproval({ sessionId, approved })
+        if (!result?.ok) {
+          throw new Error(result?.error || 'Failed to respond to tool approval')
+        }
+        return
+      }
+
       const agent = getAgent()
       const resumedResponse = approved
         ? await agent.approveToolCall({ runId, toolCallId })
@@ -526,8 +581,25 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
     const taskContext = buildTaskContext(state.tasks)
 
     try {
+      if (electron?.startAgentStream) {
+        const result = await electron.startAgentStream({
+          sessionId,
+          assistantMsgId,
+          prompt: prompt.trim(),
+          workspaceId: session?.workspaceId || 'desktop-user',
+          workspacePath: workspace?.path || '',
+          allowedPaths: state.allowedPaths,
+          taskContext,
+        })
+        if (!result?.ok) {
+          throw new Error(result?.error || 'Failed to start agent stream')
+        }
+        return
+      }
+
       const agent = getAgent()
       const streamResponse = await agent.stream(prompt.trim(), {
+        maxSteps: agentMaxSteps,
         memory: {
           thread: sessionId,
           resource: session?.workspaceId || 'desktop-user',
@@ -597,6 +669,9 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
 
   const cancelStream = useCallback(() => {
     if (!currentSessionId) return
+    if (electron?.cancelAgentStream) {
+      void electron.cancelAgentStream(currentSessionId)
+    }
     const abortController = abortControllersRef.current[currentSessionId]
     if (abortController) {
       abortController.abort()

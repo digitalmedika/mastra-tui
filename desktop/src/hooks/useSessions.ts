@@ -3,6 +3,7 @@ import type { Session } from '../lib/types'
 import { getMastraClient } from '../lib/mastra-client'
 
 const ACTIVE_SESSION_STORAGE_KEY = 'loccle-active-session-ids'
+const electron = (window as any).electronAPI
 
 function getStoredActiveSessionIds(): Record<string, string> {
   try {
@@ -36,10 +37,13 @@ export function useSessions(workspaceId?: string, mastraReady?: boolean) {
     if (!mastraReadyRef.current) return null
     setIsLoading(true)
     try {
-      const client = getMastraClient()
-      const res = await client.listMemoryThreads({
+      const params = {
+        agentId: 'openAICompatibleAgent',
         perPage: 100,
-      })
+      }
+      const res = electron?.listMemoryThreads
+        ? await electron.listMemoryThreads(params)
+        : await getMastraClient().listMemoryThreads(params)
       if (!mastraReadyRef.current) return null
       if (res && Array.isArray(res.threads)) {
         const loaded: Session[] = res.threads.map((t: any) => ({
@@ -66,13 +70,15 @@ export function useSessions(workspaceId?: string, mastraReady?: boolean) {
     const wsSessions = currentAll.filter((s) => s.workspaceId === wId)
     if (wsSessions.length === 0 && mastraReadyRef.current) {
       try {
-        const client = getMastraClient()
-        const newThread = await client.createMemoryThread({
+        const params = {
           agentId: 'openAICompatibleAgent',
           resourceId: wId,
           title: 'Default Session',
           metadata: { workspaceId: wId },
-        })
+        }
+        const newThread = electron?.createMemoryThread
+          ? await electron.createMemoryThread(params)
+          : await getMastraClient().createMemoryThread(params)
         if (!mastraReadyRef.current) return null
         const defaultSess: Session = {
           id: newThread.id,
@@ -144,14 +150,16 @@ export function useSessions(workspaceId?: string, mastraReady?: boolean) {
       if (!targetWId || !mastraReady) return { id: 'default', title: 'Default Session' } as Session
 
       try {
-        const client = getMastraClient()
         const threadTitle = title?.trim() || `Session ${new Date().toLocaleString()}`
-        const newThread = await client.createMemoryThread({
+        const params = {
           agentId: 'openAICompatibleAgent',
           resourceId: targetWId,
           title: threadTitle,
           metadata: { workspaceId: targetWId },
-        })
+        }
+        const newThread = electron?.createMemoryThread
+          ? await electron.createMemoryThread(params)
+          : await getMastraClient().createMemoryThread(params)
 
         const session: Session = {
           id: newThread.id,
@@ -192,8 +200,12 @@ export function useSessions(workspaceId?: string, mastraReady?: boolean) {
       if (!targetSession || !mastraReady) return
 
       try {
-        const client = getMastraClient()
-        await client.deleteThread(id, { agentId: 'openAICompatibleAgent' })
+        const opts = { agentId: 'openAICompatibleAgent' }
+        if (electron?.deleteMemoryThread) {
+          await electron.deleteMemoryThread(id, opts)
+        } else {
+          await getMastraClient().deleteThread(id, opts)
+        }
 
         const wId = targetSession.workspaceId
         const nextAll = allSessionsRef.current.filter((s) => s.id !== id)

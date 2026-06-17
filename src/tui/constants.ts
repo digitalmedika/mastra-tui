@@ -26,7 +26,7 @@ export const markdownSyntaxStyle = SyntaxStyle.fromTheme([
 
 export const workspacePath = defaultWorkspacePath;
 export const configuredMaxSteps = Number(process.env.VIBE_CODING_MAX_STEPS);
-export const agentMaxSteps = Number.isFinite(configuredMaxSteps) && configuredMaxSteps > 0 ? configuredMaxSteps : 60;
+export const agentMaxSteps = Number.isFinite(configuredMaxSteps) && configuredMaxSteps > 0 ? configuredMaxSteps : 40;
 export const authServerUrl = process.env.AUTH_SERVER_URL ?? 'https://api.loccle.com';
 
 export const mutedFg = '#7e8494';
