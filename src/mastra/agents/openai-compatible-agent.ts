@@ -88,7 +88,21 @@ CRITICAL: When editing files:
 - old_string must match the current file contents exactly, including indentation, whitespace, and blank lines
 - new_string must be the complete replacement for old_string, not only the changed lines
 - If the same old_string appears more than once, set replace_all only when every occurrence should change; otherwise choose a larger unique old_string
-- Use mastra_workspace_write_file only when creating or replacing a whole file intentionally`;
+- Use mastra_workspace_write_file only when creating or replacing a whole file intentionally
+
+AST-based editing with mastra_workspace_ast_edit:
+- Use for structured code transformations that are error-prone with string matching
+- add-import: Add or merge imports without duplicates. For default imports, put the default name first in names.
+  Example: { transform: "add-import", importSpec: { module: "react", names: ["useState", "useEffect"] } }
+  Example (default): { transform: "add-import", importSpec: { module: "express", names: ["express", "Router"], isDefault: true } }
+- remove-import: Remove an import by module name.
+  Example: { transform: "remove-import", targetName: "lodash" }
+- rename: Rename all occurrences of an identifier (not scope-aware, review the result).
+  Example: { transform: "rename", targetName: "oldName", newName: "newName" }
+- Pattern replace for general AST transformations:
+  Example: { pattern: "console.log($ARG)", replacement: "logger.debug($ARG)" }
+- Prefer mastra_workspace_ast_edit over mastra_workspace_edit_file for import manipulation and identifier renames
+- Always provide path to the file to edit`;
 
 function createAgent(): Agent {
   return new Agent({
