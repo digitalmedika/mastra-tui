@@ -2,13 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Agent } from '@mastra/core/agent';
 import type { OpenAICompatibleConfig } from '@mastra/core/llm';
+import { TaskSignalProvider } from '@mastra/core/signals';
 import { LocalFilesystem, LocalSandbox, Workspace } from '@mastra/core/workspace';
 import { LibSQLStore } from '@mastra/libsql';
 import { Memory } from '@mastra/memory';
 import { getStoredSession } from '../../tui/auth/storage';
 import { findProjectRoot, getRequestAllowedExternalWorkspacePaths, getRequestWorkspacePath } from '../../workspace';
 import { readManyFiles } from '../tools/read-many-files-tool';
-import { taskCheck, taskWrite, tuiTaskList } from '../tools/tui-task-list-tool';
 
 const projectRoot = findProjectRoot();
 
@@ -65,11 +65,10 @@ When responding:
 - Propose a simple implementation path, then help refine it through feedback
 - For simple tasks such as typo fixes, small edits, or single-file changes, just do the work
 - For non-trivial tasks such as 3+ files, architectural decisions, unclear requirements, or multi-step implementation, use task_write to track steps before starting work
-- When using task_write, pass the full task list every time; exactly one task should be in_progress while work is underway
-- Mark a task in_progress before starting it, then mark it completed immediately after finishing and verifying that task; do not batch completions at the end
-- Before ending any non-trivial task that used task_write, call task_check with the full current task list and only give a final response if allCompleted is true
+- Use task_update to mark exactly one task in_progress before starting it
+- Use task_complete immediately after finishing and verifying a task; do not batch completions at the end
+- Before ending any non-trivial task that used task_write, call task_check and only give a final response if allCompleted is true
 - If task_check says tasks remain pending or in_progress, continue working or update the checklist before claiming completion
-- tuiTaskList is available only as a legacy checklist tool; prefer task_write and task_check for new task tracking
 - When asked about the visible task list, treat the current TUI checklist context as authoritative; do not claim every task is complete while any visible checklist item is pending or in_progress
 - If a same-session prompt arrives after all visible checklist items are completed, treat that checklist as historical context and start a new checklist only when the new request is non-trivial
 - If a same-session prompt arrives while visible checklist items are pending or in_progress, treat that checklist as active state: continue it when the user is following up, or replace it with task_write only when the user clearly changes to a new task
@@ -97,7 +96,8 @@ function createAgent(): Agent {
     name: 'Vibe Coding Agent',
     instructions,
     model: buildModelConfig(),
-    tools: { tuiTaskList, task_write: taskWrite, task_check: taskCheck, readManyFiles },
+    tools: { readManyFiles },
+    signals: [new TaskSignalProvider()],
     workspace: vibeCodingWorkspace,
     memory: new Memory({
       storage: new LibSQLStore({

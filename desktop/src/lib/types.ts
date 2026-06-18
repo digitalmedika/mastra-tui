@@ -20,6 +20,7 @@ export interface ToolPayload {
 }
 
 export interface TaskItem {
+  id?: string
   index: number
   text: string
   done: boolean

@@ -9,7 +9,6 @@ import { weatherWorkflow } from './workflows/weather-workflow';
 import { openAICompatibleAgent } from './agents/openai-compatible-agent';
 import { readManyFiles } from './tools/read-many-files-tool';
 import { weatherTool } from './tools/weather-tool';
-import { taskCheck, taskWrite, tuiTaskList } from './tools/tui-task-list-tool';
 import { toolCallAppropriatenessScorer, completenessScorer, translationScorer } from './scorers/weather-scorer';
 
 const desktopMode = process.env.DESKTOP_MODE === 'true';
@@ -18,7 +17,7 @@ const duckDBPath = process.env.MASTRA_DUCKDB_PATH?.trim() || (desktopMode ? ':me
 export const mastra = new Mastra({
   workflows: { weatherWorkflow },
   agents: { openAICompatibleAgent },
-  tools: { weatherTool, tuiTaskList, task_write: taskWrite, task_check: taskCheck, readManyFiles },
+  tools: { weatherTool, readManyFiles },
   scorers: { toolCallAppropriatenessScorer, completenessScorer, translationScorer },
   storage: new MastraCompositeStore({
     id: 'composite-storage',

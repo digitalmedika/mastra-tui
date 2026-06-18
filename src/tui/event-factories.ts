@@ -48,7 +48,7 @@ export const isShellTool = (toolName: string | undefined) => {
 };
 
 export const isTaskListToolName = (toolName: string | undefined) => {
-  return toolName === 'tuiTaskList' || toolName === 'task_write' || toolName === 'task_check';
+  return toolName === 'task_write' || toolName === 'task_update' || toolName === 'task_complete' || toolName === 'task_check';
 };
 
 const findStartLine = (filePath: string, needle: string | undefined) => {
@@ -105,27 +105,29 @@ export const createShellEvent = (
 export const summarizeTaskList = (payload: ToolPayload, fallbackPayload?: ToolPayload) => {
   const args = getPayloadArgs(payload, fallbackPayload);
   const toolName = payload.toolName ?? fallbackPayload?.toolName;
+  const result = isRecord(payload.result) ? payload.result : isRecord(fallbackPayload?.result) ? fallbackPayload.result : undefined;
+  const resultTasks = Array.isArray(result?.tasks) ? result.tasks : undefined;
 
   if (toolName === 'task_write') {
-    const tasks = Array.isArray(args?.tasks) ? args.tasks : [];
+    const tasks = Array.isArray(args?.tasks) ? args.tasks : resultTasks ?? [];
     return `updating checklist (${tasks.length} tasks)`;
   }
 
+  if (toolName === 'task_update') {
+    return `updating checklist task ${String(args?.id ?? '?')}`;
+  }
+
+  if (toolName === 'task_complete') {
+    return `completing checklist task ${String(args?.id ?? '?')}`;
+  }
+
   if (toolName === 'task_check') {
-    const result = isRecord(payload.result) ? payload.result : undefined;
-    const completed = typeof result?.completed === 'number' ? result.completed : undefined;
-    const total = typeof result?.total === 'number' ? result.total : undefined;
+    const summary = isRecord(result?.summary) ? result.summary : undefined;
+    const completed = typeof summary?.completed === 'number' ? summary.completed : undefined;
+    const total = typeof summary?.total === 'number' ? summary.total : undefined;
     return completed !== undefined && total !== undefined
       ? `checking checklist (${completed}/${total} completed)`
       : 'checking checklist completion';
-  }
-
-  if (args?.action === 'set' && Array.isArray(args.tasks)) {
-    return `updating checklist (${args.tasks.length} tasks)`;
-  }
-
-  if (args?.action === 'update') {
-    return `updating checklist task ${String(args.taskId ?? '?')} -> ${String(args.status ?? '?')}`;
   }
 
   return 'updating checklist';

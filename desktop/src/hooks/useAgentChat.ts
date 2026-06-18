@@ -81,14 +81,14 @@ function summarizeTool(toolName: string, args: any): string {
     case 'mastra_workspace_grep': return `Searching ${args?.pattern ?? ''}`
     case 'mastra_workspace_shell': case 'mastra_workspace_execute_command':
       return `Running: ${cmd ?? '(command)'}`
-    case 'tuiTaskList': {
-      if (args?.action === 'set') return `Checklist (${args?.tasks?.length ?? 0} tasks)`
-      return `Checklist update`
-    }
     case 'task_write':
       return `Checklist (${Array.isArray(args?.tasks) ? args.tasks.length : 0} tasks)`
+    case 'task_update':
+      return `Updating task ${args?.id ?? '?'}`
+    case 'task_complete':
+      return `Completing task ${args?.id ?? '?'}`
     case 'task_check':
-      return `Checking checklist (${Array.isArray(args?.tasks) ? args.tasks.length : 0} tasks)`
+      return `Checking checklist`
     default: return `${toolName}`
   }
 }
@@ -139,7 +139,9 @@ const extractMemoryMessageText = (content: unknown): string => {
 
 function toolLabel(toolName: string): string {
   switch (toolName) {
-    case 'tuiTaskList': case 'task_write': return 'TASK'
+    case 'task_write': return 'TASK'
+    case 'task_update': return 'TASK'
+    case 'task_complete': return 'TASK'
     case 'task_check': return 'CHECK'
     case 'mastra_workspace_read_file': case 'readManyFiles': return 'READ'
     case 'mastra_workspace_write_file': case 'mastra_workspace_edit_file': return 'EDIT'
@@ -160,7 +162,7 @@ function buildTaskContext(tasks: TaskItem[]): string | undefined {
   if (allCompleted) {
     return `Previous visible TUI checklist state (all completed):\n${lines.join('\n')}\n\nTreat this as historical context for the same session. Do not continue or re-open this checklist unless the user explicitly asks about it. For a new non-trivial request, create a fresh checklist with task_write.`
   }
-  return `Current visible TUI checklist state (unfinished):\n${lines.join('\n')}\n\nTreat this checklist as active and authoritative. If the user is following up on this work, continue from the unfinished checklist and call task_write with the full updated list before claiming progress. If the user clearly changes to a new unrelated task, replace the checklist with task_write for the new task.`
+  return `Current visible TUI checklist state (unfinished):\n${lines.join('\n')}\n\nTreat this checklist as active and authoritative. If the user is following up on this work, continue from the unfinished checklist and call task_update or task_complete before claiming progress. If the user clearly changes to a new unrelated task, replace the checklist with task_write for the new task.`
 }
 
 function nameToEventType(toolName: string): ToolEvent['type'] {
@@ -169,13 +171,19 @@ function nameToEventType(toolName: string): ToolEvent['type'] {
     case 'mastra_workspace_read_file': case 'readManyFiles': return 'read'
     case 'mastra_workspace_list_files': case 'mastra_workspace_grep': return 'explore'
     case 'mastra_workspace_shell': case 'mastra_workspace_execute_command': return 'shell'
-    case 'tuiTaskList': case 'task_write': case 'task_check': return 'task-list'
+    case 'task_write': case 'task_update': case 'task_complete': case 'task_check': return 'task-list'
     default: return 'run'
   }
 }
 
 function isTaskListToolName(toolName: string): boolean {
-  return toolName === 'tuiTaskList' || toolName === 'task_write' || toolName === 'task_check'
+  return toolName === 'task_write' || toolName === 'task_update' || toolName === 'task_complete' || toolName === 'task_check'
+}
+
+function extractTaskRecords(args: any, result?: any): any[] | undefined {
+  if (Array.isArray(result?.tasks)) return result.tasks
+  if (Array.isArray(args?.tasks)) return args.tasks
+  return undefined
 }
 
 interface SessionChatState {
@@ -302,10 +310,12 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
     }
   }, [currentSessionId, mastraReady, getSessionChatState, updateSessionChatState])
 
-  const handleTaskListChunk = useCallback((sessionId: string, args: any) => {
-    if (Array.isArray(args?.tasks) && !args?.action) {
-      const next = args.tasks
+  const handleTaskListChunk = useCallback((sessionId: string, args: any, result?: any) => {
+    const taskRecords = extractTaskRecords(args, result)
+    if (taskRecords) {
+      const next = taskRecords
         .map((t: any, index: number) => ({
+          id: typeof t?.id === 'string' ? t.id : undefined,
           index: index + 1,
           text: cleanTaskText(typeof t?.content === 'string' ? t.content : ''),
           done: t?.status === 'completed',
@@ -313,34 +323,6 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
         }))
         .filter((t: TaskItem) => t.text)
       updateSessionChatState(sessionId, { tasks: next })
-      return
-    }
-
-    if (args?.action === 'set' && Array.isArray(args.tasks)) {
-      const next = args.tasks
-        .filter((t: any) => t && typeof t.id === 'number' && typeof t.title === 'string')
-        .map((t: any) => ({
-          index: t.id,
-          text: cleanTaskText(t.title),
-          done: t.status === 'completed',
-          current: t.status === 'in_progress',
-        }))
-        .sort((a: TaskItem, b: TaskItem) => a.index - b.index)
-      updateSessionChatState(sessionId, { tasks: next })
-    }
-
-    if (args?.action === 'update') {
-      const idx = typeof args.taskId === 'number' ? args.taskId : Number(args.taskId)
-      const st = args.status
-      if (!Number.isFinite(idx) || !st) return
-      updateSessionChatState(sessionId, (prev) => ({
-        ...prev,
-        tasks: prev.tasks.map((t) =>
-          t.index === idx
-            ? { ...t, done: st === 'completed', current: st === 'in_progress' }
-            : t
-        )
-      }))
     }
   }, [updateSessionChatState])
 
@@ -387,6 +369,10 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
     if (chunk.type === 'tool-result') {
       const callId = chunk.payload?.toolCallId
       const isError = chunk.payload?.isError === true
+      const name = chunk.payload?.toolName ?? ''
+      if (isTaskListToolName(name) || Array.isArray(chunk.payload?.result?.tasks)) {
+        handleTaskListChunk(sessionId, chunk.payload?.args ?? {}, chunk.payload?.result)
+      }
       updateSessionChatState(sessionId, (prev) => ({
         ...prev,
         toolEvents: prev.toolEvents.map((te) =>

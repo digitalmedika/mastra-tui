@@ -78,6 +78,16 @@ const summarizeArgs = (args: unknown) => {
 
 const cleanTaskText = (text: string) => text.replace(/\*\*/g, '').replace(/`/g, '').replace(/\s+/g, ' ').trim();
 
+const extractTaskRecords = (payload: ToolPayload, fallbackPayload?: ToolPayload): Record<string, unknown>[] | undefined => {
+  const result = asArgsRecord(payload.result) ?? asArgsRecord(fallbackPayload?.result);
+  if (Array.isArray(result?.tasks)) return result.tasks.map(asArgsRecord).filter((item): item is Record<string, unknown> => Boolean(item));
+
+  const args = asArgsRecord(payload.args) ?? asArgsRecord(fallbackPayload?.args);
+  if (Array.isArray(args?.tasks)) return args.tasks.map(asArgsRecord).filter((item): item is Record<string, unknown> => Boolean(item));
+
+  return undefined;
+};
+
 type ApprovalResume = (approved: boolean) => Promise<boolean>;
 
 const buildTaskContext = (tasks: TaskItem[]) => {
@@ -104,7 +114,7 @@ ${taskLines}
 
 Treat this checklist as active and authoritative when the user asks about task progress or completion.
 Do not say all tasks are complete unless every visible checklist item is completed.
-If the user is following up on this work, continue from the unfinished checklist and call task_write with the full updated list before claiming progress.
+If the user is following up on this work, continue from the unfinished checklist and call task_update or task_complete before claiming progress.
 If the user clearly changes to a new unrelated task, replace the checklist with task_write for the new task.`;
 };
 
@@ -275,8 +285,9 @@ export function useAgentStream() {
 
     const getToolLabel = (toolName: string | undefined): string => {
       switch (toolName) {
-        case 'tuiTaskList': return 'TASK';
         case 'task_write': return 'TASK';
+        case 'task_update': return 'TASK';
+        case 'task_complete': return 'TASK';
         case 'task_check': return 'CHECK';
         case 'mastra_workspace_read_file': return 'READ';
         case 'readManyFiles': return 'READ';
@@ -307,16 +318,16 @@ export function useAgentStream() {
           const tasks = Array.isArray(record?.tasks) ? record.tasks : [];
           return `updating checklist (${tasks.length} tasks)`;
         }
-        case 'task_check': {
+        case 'task_update': {
           const record = asArgsRecord(args);
-          const tasks = Array.isArray(record?.tasks) ? record.tasks : [];
-          return `checking checklist completion (${tasks.length} tasks)`;
+          return `updating checklist task ${String(record?.id ?? '?')}`;
         }
-        case 'tuiTaskList': {
+        case 'task_complete': {
           const record = asArgsRecord(args);
-          if (record?.action === 'set' && Array.isArray(record.tasks)) return `updating checklist (${record.tasks.length} tasks)`;
-          if (record?.action === 'update') return `updating checklist task ${String(record.taskId ?? '?')} -> ${String(record.status ?? '?')}`;
-          return 'updating checklist';
+          return `completing checklist task ${String(record?.id ?? '?')}`;
+        }
+        case 'task_check': {
+          return 'checking checklist completion';
         }
         case 'mastra_workspace_read_file': return `reading file ${(path ?? summarizeArgs(args)) || '(path unavailable)'}`;
         case 'readManyFiles': {
@@ -337,59 +348,26 @@ export function useAgentStream() {
       }
     };
 
-    const applyTaskListTool = (payload: ToolPayload) => {
-      const args = asArgsRecord(payload.args);
-      if (!args || !isTaskListToolName(payload.toolName)) return;
+    const applyTaskListTool = (payload: ToolPayload, fallbackPayload?: ToolPayload) => {
+      const toolName = payload.toolName ?? fallbackPayload?.toolName;
+      if (!isTaskListToolName(toolName)) return;
 
       hasStructuredTaskList = true;
 
-      if ((payload.toolName === 'task_write' || payload.toolName === 'task_check') && Array.isArray(args.tasks)) {
-        const nextTasks = args.tasks
-          .map((item, index) => {
-            const record = asArgsRecord(item);
-            if (!record) return undefined;
+      const taskRecords = extractTaskRecords(payload, fallbackPayload);
+      if (taskRecords) {
+        const nextTasks = taskRecords
+          .map((record, index) => {
             const text = typeof record.content === 'string' ? cleanTaskText(record.content) : '';
             const st = typeof record.status === 'string' ? record.status : 'pending';
-            return { index: index + 1, text, done: st === 'completed', current: st === 'in_progress' };
+            const id = typeof record.id === 'string' ? record.id : undefined;
+            return { ...(id ? { id } : {}), index: index + 1, text, done: st === 'completed', current: st === 'in_progress' };
           })
           .filter((item): item is TaskItem => Boolean(item && item.text));
 
         setTasks(nextTasks);
         currentTaskIndex = nextTasks.find((task) => task.current)?.index ?? null;
         return;
-      }
-
-      if (args.action === 'set' && Array.isArray(args.tasks)) {
-        const nextTasks = args.tasks
-          .map((item) => asArgsRecord(item))
-          .filter((item): item is Record<string, unknown> => Boolean(item))
-          .map((item) => {
-            const index = typeof item.id === 'number' ? item.id : Number(item.id);
-            const text = typeof item.title === 'string' ? cleanTaskText(item.title) : '';
-            const st = typeof item.status === 'string' ? item.status : 'pending';
-            return { index, text, done: st === 'completed', current: st === 'in_progress' };
-          })
-          .filter((item) => Number.isFinite(item.index) && item.text)
-          .sort((a, b) => a.index - b.index);
-
-        setTasks(nextTasks);
-        currentTaskIndex = nextTasks.find((task) => task.current)?.index ?? null;
-        return;
-      }
-
-      if (args.action === 'update') {
-        const taskIndex = typeof args.taskId === 'number' ? args.taskId : Number(args.taskId);
-        const st = typeof args.status === 'string' ? args.status : undefined;
-        if (!Number.isFinite(taskIndex) || !st) return;
-
-        if (st === 'in_progress') currentTaskIndex = taskIndex;
-        else if (currentTaskIndex === taskIndex) currentTaskIndex = null;
-
-        setTasks((current) =>
-          current.map((task) =>
-            task.index === taskIndex ? { ...task, done: st === 'completed', current: st === 'in_progress' } : task,
-          ),
-        );
       }
     };
 
@@ -771,6 +749,7 @@ export function useAgentStream() {
           const description = (chunk.payload.toolCallId && toolDescriptions.get(chunk.payload.toolCallId)) || describeTool(chunk.payload);
           const lineId = (chunk.payload.toolCallId && activeToolLineByCallId.get(chunk.payload.toolCallId)) || undefined;
           const fallbackPayload = chunk.payload.toolCallId ? toolPayloads.get(chunk.payload.toolCallId) : undefined;
+          applyTaskListTool(chunk.payload, fallbackPayload);
           const toolName = chunk.payload.toolName ?? fallbackPayload?.toolName;
           const isErrorResult = chunk.payload.isError === true;
           const toolErrorMessage = getToolErrorMessage(chunk.payload, fallbackPayload);
@@ -1003,6 +982,7 @@ export function useAgentStream() {
             const description = (chunk.payload.toolCallId && toolDescriptions.get(chunk.payload.toolCallId)) || describeTool(chunk.payload);
             const lineId = (chunk.payload.toolCallId && activeToolLineByCallId.get(chunk.payload.toolCallId)) || undefined;
             const fallbackPayload = chunk.payload.toolCallId ? toolPayloads.get(chunk.payload.toolCallId) : undefined;
+            applyTaskListTool(chunk.payload, fallbackPayload);
             const toolName = chunk.payload.toolName ?? fallbackPayload?.toolName;
             const isErrorResult = chunk.payload.isError === true;
             const toolErrorMessage = getToolErrorMessage(chunk.payload, fallbackPayload);

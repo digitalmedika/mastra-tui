@@ -141,6 +141,7 @@ export type StreamRequest = {
 };
 
 export type TaskItem = {
+  id?: string;
   index: number;
   text: string;
   done: boolean;
