@@ -5,20 +5,15 @@ import { LibSQLStore } from '@mastra/libsql';
 import { DuckDBStore } from "@mastra/duckdb";
 import { MastraCompositeStore } from '@mastra/core/storage';
 import { Observability, MastraStorageExporter, MastraPlatformExporter, SensitiveDataFilter } from '@mastra/observability';
-import { weatherWorkflow } from './workflows/weather-workflow';
 import { openAICompatibleAgent } from './agents/openai-compatible-agent';
 import { readManyFiles } from './tools/read-many-files-tool';
-import { weatherTool } from './tools/weather-tool';
-import { toolCallAppropriatenessScorer, completenessScorer, translationScorer } from './scorers/weather-scorer';
 
 const desktopMode = process.env.DESKTOP_MODE === 'true';
 const duckDBPath = process.env.MASTRA_DUCKDB_PATH?.trim() || (desktopMode ? ':memory:' : '.loccle/mastra.duckdb');
 
 export const mastra = new Mastra({
-  workflows: { weatherWorkflow },
   agents: { openAICompatibleAgent },
-  tools: { weatherTool, readManyFiles },
-  scorers: { toolCallAppropriatenessScorer, completenessScorer, translationScorer },
+  tools: { readManyFiles },
   storage: new MastraCompositeStore({
     id: 'composite-storage',
     default: new LibSQLStore({
