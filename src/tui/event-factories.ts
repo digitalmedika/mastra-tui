@@ -185,6 +185,7 @@ export const createReadEvent = (id: number, payload: ToolPayload, fallbackPayloa
     };
   }
 
+  const args = getPayloadArgs(payload, fallbackPayload);
   const filePath = getPayloadPath(payload, fallbackPayload);
   if (!filePath) {
     return undefined;
@@ -193,6 +194,8 @@ export const createReadEvent = (id: number, payload: ToolPayload, fallbackPayloa
   const resultLines = countLines(getResultText(payload.result));
   const localLines = countFileLines(filePath);
   const lineCount = localLines ?? resultLines;
+  const offset = typeof args?.offset === 'number' ? args.offset : undefined;
+  const limit = typeof args?.limit === 'number' ? args.limit : undefined;
 
   return {
     id,
@@ -200,6 +203,8 @@ export const createReadEvent = (id: number, payload: ToolPayload, fallbackPayloa
     label: 'READ',
     path: filePath,
     lines: lineCount,
+    offset,
+    limit,
   };
 };
 

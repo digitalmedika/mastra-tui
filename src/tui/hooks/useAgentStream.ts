@@ -80,6 +80,17 @@ const cleanTaskText = (text: string) => text.replace(/\*\*/g, '').replace(/`/g, 
 
 const taskRecordListFrom = (source: unknown): Record<string, unknown>[] | undefined => {
   const record = asArgsRecord(source);
+
+  // Handle JSON-encoded string results from Mastra tools
+  if (!record && typeof source === 'string') {
+    try {
+      const parsed = JSON.parse(source);
+      return taskRecordListFrom(parsed);
+    } catch {
+      return undefined;
+    }
+  }
+
   if (!record) return undefined;
   if (Array.isArray(record.tasks)) {
     return record.tasks.map(asArgsRecord).filter((item): item is Record<string, unknown> => Boolean(item));
@@ -95,6 +106,17 @@ const taskRecordListFrom = (source: unknown): Record<string, unknown>[] | undefi
     for (const part of content) {
       const nested = taskRecordListFrom(part);
       if (nested) return nested;
+    }
+  }
+
+  // Handle string content that might be JSON
+  if (typeof content === 'string') {
+    try {
+      const parsed = JSON.parse(content);
+      const fromParsed = taskRecordListFrom(parsed);
+      if (fromParsed) return fromParsed;
+    } catch {
+      // not JSON, ignore
     }
   }
 
@@ -122,9 +144,12 @@ const parseToolInputArgs = (argsText: string): Record<string, unknown> | undefin
 const taskRecordsToItems = (taskRecords: Record<string, unknown>[]): TaskItem[] => {
   return taskRecords
     .map((record, index) => {
-      const text = typeof record.content === 'string' ? cleanTaskText(record.content) : '';
+      const text =
+        (typeof record.content === 'string' ? cleanTaskText(record.content) : '') ||
+        (typeof record.activeForm === 'string' ? cleanTaskText(record.activeForm) : '') ||
+        (typeof record.title === 'string' ? cleanTaskText(record.title) : '');
       const st = typeof record.status === 'string' ? record.status : 'pending';
-      const id = typeof record.id === 'string' ? record.id : undefined;
+      const id = typeof record.id === 'string' ? record.id : typeof record.id === 'number' ? String(record.id) : undefined;
       return { ...(id ? { id } : {}), index: index + 1, text, done: st === 'completed', current: st === 'in_progress' };
     })
     .filter((item): item is TaskItem => Boolean(item && item.text));
@@ -420,8 +445,18 @@ export function useAgentStream() {
 
       setTasks((current) => {
         let changed = false;
+
+        // Check if tasks have any IDs at all (from proper task_write result parsing)
+        const tasksHaveIds = current.some((task) => task.id !== undefined);
+
         const next = current.map((task) => {
-          const matches = task.id === id || String(task.index) === id;
+          const matches =
+            task.id === id ||
+            String(task.index) === id ||
+            // Fallback: when tasks don't have IDs (e.g., task_write result wasn't parsed),
+            // try matching by parsing the id as an index number
+            (!tasksHaveIds && String(task.index) === String(parseInt(id, 10)));
+
           if (!matches) {
             return toolName === 'task_update' && args?.status === 'in_progress' ? { ...task, current: false } : task;
           }
@@ -436,6 +471,46 @@ export function useAgentStream() {
             current: status === 'in_progress' ? true : status === 'completed' || status === 'pending' ? false : task.current,
           };
         });
+
+        // If still no match and tasks have no IDs, try fallback heuristics
+        if (!changed && !tasksHaveIds && toolName === 'task_complete') {
+          // Find the current in_progress task and complete it
+          const inProgressIndex = current.findIndex((task) => task.current);
+          if (inProgressIndex >= 0) {
+            const nextTasks = current.map((task, i) =>
+              i === inProgressIndex ? { ...task, done: true, current: false } : task,
+            );
+            changed = true;
+            currentTaskIndex = nextTasks.find((task) => task.current)?.index ?? null;
+            return nextTasks;
+          }
+          // If no in_progress task, complete the first pending task
+          const pendingIndex = current.findIndex((task) => !task.done && !task.current);
+          if (pendingIndex >= 0) {
+            const nextTasks = current.map((task, i) =>
+              i === pendingIndex ? { ...task, done: true, current: false } : task,
+            );
+            changed = true;
+            currentTaskIndex = nextTasks.find((task) => task.current)?.index ?? null;
+            return nextTasks;
+          }
+        }
+
+        if (!changed && !tasksHaveIds && toolName === 'task_update' && args?.status === 'in_progress') {
+          // Find the first pending task and mark it in_progress
+          const pendingIndex = current.findIndex((task) => !task.done && !task.current);
+          if (pendingIndex >= 0) {
+            const nextTasks = current.map((task, i) =>
+              i === pendingIndex
+                ? { ...task, current: true, done: false }
+                : { ...task, current: false },
+            );
+            changed = true;
+            currentTaskIndex = nextTasks.find((task) => task.current)?.index ?? null;
+            return nextTasks;
+          }
+        }
+
         if (!changed) return current;
         currentTaskIndex = next.find((task) => task.current)?.index ?? null;
         return next;
@@ -444,7 +519,17 @@ export function useAgentStream() {
     };
 
     const applyHarnessEvent = (event: unknown) => {
-      const record = asArgsRecord(event);
+      let record = asArgsRecord(event);
+
+      // Handle JSON-encoded string events
+      if (!record && typeof event === 'string') {
+        try {
+          record = asArgsRecord(JSON.parse(event));
+        } catch {
+          return;
+        }
+      }
+
       if (record?.type !== 'task_updated') return;
       const taskRecords = Array.isArray(record.tasks)
         ? record.tasks.map(asArgsRecord).filter((item): item is Record<string, unknown> => Boolean(item))

@@ -181,7 +181,17 @@ function isTaskListToolName(toolName: string): boolean {
 }
 
 function extractTaskRecordsFrom(source: any): any[] | undefined {
-  if (!source || typeof source !== 'object' || Array.isArray(source)) return undefined
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    // Handle JSON-encoded string results from Mastra tools
+    if (typeof source === 'string') {
+      try {
+        return extractTaskRecordsFrom(JSON.parse(source))
+      } catch {
+        return undefined
+      }
+    }
+    return undefined
+  }
   if (Array.isArray(source.tasks)) return source.tasks
   for (const key of ['result', 'output', 'value', 'data', 'payload']) {
     const nested = extractTaskRecordsFrom(source[key])
@@ -191,6 +201,16 @@ function extractTaskRecordsFrom(source: any): any[] | undefined {
     for (const part of source.content) {
       const nested = extractTaskRecordsFrom(part)
       if (nested) return nested
+    }
+  }
+  // Handle string content that might be JSON
+  if (typeof source.content === 'string') {
+    try {
+      const parsed = JSON.parse(source.content)
+      const fromParsed = extractTaskRecordsFrom(parsed)
+      if (fromParsed) return fromParsed
+    } catch {
+      // not JSON, ignore
     }
   }
   return undefined
@@ -351,9 +371,13 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
     if (taskRecords) {
       const next = taskRecords
         .map((t: any, index: number) => ({
-          id: typeof t?.id === 'string' ? t.id : undefined,
+          id: typeof t?.id === 'string' ? t.id : typeof t?.id === 'number' ? String(t.id) : undefined,
           index: index + 1,
-          text: cleanTaskText(typeof t?.content === 'string' ? t.content : ''),
+          text: cleanTaskText(
+            (typeof t?.content === 'string' ? t.content : '') ||
+            (typeof t?.activeForm === 'string' ? t.activeForm : '') ||
+            (typeof t?.title === 'string' ? t.title : '')
+          ),
           done: t?.status === 'completed',
           current: t?.status === 'in_progress',
         }))
@@ -371,8 +395,17 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
 
     updateSessionChatState(sessionId, (prev) => {
       let changed = false
+
+      // Check if tasks have any IDs at all (from proper task_write result parsing)
+      const tasksHaveIds = prev.tasks.some((task) => task.id !== undefined)
+
       const tasks = prev.tasks.map((task) => {
-        const matches = task.id === id || String(task.index) === id
+        const matches =
+          task.id === id ||
+          String(task.index) === id ||
+          // Fallback: when tasks don't have IDs, try matching by parsing the id as an index number
+          (!tasksHaveIds && String(task.index) === String(parseInt(id, 10)))
+
         if (!matches) {
           return toolName === 'task_update' && args?.status === 'in_progress' ? { ...task, current: false } : task
         }
@@ -387,18 +420,59 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
           current: status === 'in_progress' ? true : status === 'completed' || status === 'pending' ? false : task.current,
         }
       })
+
+      // If still no match and tasks have no IDs, try fallback heuristics
+      if (!changed && !tasksHaveIds && toolName === 'task_complete') {
+        const inProgressIndex = prev.tasks.findIndex((task) => task.current)
+        if (inProgressIndex >= 0) {
+          const nextTasks = prev.tasks.map((task, i) =>
+            i === inProgressIndex ? { ...task, done: true, current: false } : task,
+          )
+          return { ...prev, tasks: nextTasks }
+        }
+        const pendingIndex = prev.tasks.findIndex((task) => !task.done && !task.current)
+        if (pendingIndex >= 0) {
+          const nextTasks = prev.tasks.map((task, i) =>
+            i === pendingIndex ? { ...task, done: true, current: false } : task,
+          )
+          return { ...prev, tasks: nextTasks }
+        }
+      }
+
+      if (!changed && !tasksHaveIds && toolName === 'task_update' && args?.status === 'in_progress') {
+        const pendingIndex = prev.tasks.findIndex((task) => !task.done && !task.current)
+        if (pendingIndex >= 0) {
+          const nextTasks = prev.tasks.map((task, i) =>
+            i === pendingIndex
+              ? { ...task, current: true, done: false }
+              : { ...task, current: false },
+          )
+          return { ...prev, tasks: nextTasks }
+        }
+      }
+
       return changed ? { ...prev, tasks } : prev
     })
   }, [updateSessionChatState])
 
   const handleHarnessEvent = useCallback((sessionId: string, event: any) => {
-    if (event?.type === 'task_updated') {
-      handleTaskListChunk(sessionId, { tasks: event.tasks })
+    // Handle JSON-encoded string events
+    let ev = event
+    if (typeof ev === 'string') {
+      try {
+        ev = JSON.parse(ev)
+      } catch {
+        return
+      }
+    }
+
+    if (ev?.type === 'task_updated') {
+      handleTaskListChunk(sessionId, { tasks: ev.tasks })
       return
     }
 
-    if (event?.type === 'display_state_changed' && Array.isArray(event.displayState?.tasks)) {
-      handleTaskListChunk(sessionId, { tasks: event.displayState.tasks })
+    if (ev?.type === 'display_state_changed' && Array.isArray(ev.displayState?.tasks)) {
+      handleTaskListChunk(sessionId, { tasks: ev.displayState.tasks })
     }
   }, [handleTaskListChunk])
 
