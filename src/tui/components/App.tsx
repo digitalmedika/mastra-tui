@@ -17,6 +17,7 @@ import { TaskListPanel } from './TaskListPanel';
 import { StreamView } from './StreamView';
 import { PaymentOverlay, PAYMENT_AMOUNTS, type PaymentData, type PaymentPhase } from './PaymentOverlay';
 import pkg from '../../../package.json';
+import { TextareaRenderable } from '@opentui/core';
 
 const hasPositiveBalance = (value: string | null) => {
   const numeric = Number(value);
@@ -57,6 +58,7 @@ export function App({ onExit }: { onExit: () => void }) {
     selectModel,
   } = useAgentStream();
   const [inputValue, setInputValue] = useState('');
+  const textareaRef = useRef<TextareaRenderable>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [balance, setBalance] = useState<string | null>(null);
   const [paymentOverlayOpen, setPaymentOverlayOpen] = useState(false);
@@ -183,7 +185,7 @@ export function App({ onExit }: { onExit: () => void }) {
 
           if (pendingPrompt && status !== 'streaming' && status !== 'awaiting-approval') {
             if (submitPrompt(pendingPrompt)) {
-              setInputValue('');
+              clearInput();
             }
             setPendingPrompt(null);
           }
@@ -291,6 +293,11 @@ export function App({ onExit }: { onExit: () => void }) {
     setPendingPrompt(null);
   }, []);
 
+  const clearInput = useCallback(() => {
+    textareaRef.current?.setText('');
+    setInputValue('');
+  }, []);
+
   const openUrl = useCallback((url: string) => {
     const cmd =
       process.platform === 'darwin'
@@ -328,7 +335,8 @@ export function App({ onExit }: { onExit: () => void }) {
     }
   }, []);
 
-  const handleSubmit = (value: unknown) => {
+  const handleSubmit = () => {
+    const value = textareaRef.current?.plainText;
     if (typeof value !== 'string') return;
 
     const trimmedValue = value.trim();
@@ -339,44 +347,44 @@ export function App({ onExit }: { onExit: () => void }) {
     const canStartAction = status !== 'streaming' && status !== 'awaiting-approval';
 
     if (trimmedValue === '/approve' && status === 'awaiting-approval') {
-      setInputValue('');
+      clearInput();
       void respondToApproval(true);
       return;
     }
 
     if ((trimmedValue === '/deny' || trimmedValue === '/reject') && status === 'awaiting-approval') {
-      setInputValue('');
+      clearInput();
       void respondToApproval(false);
       return;
     }
 
     if (trimmedValue === '/clear' && canStartAction) {
-      setInputValue('');
+      clearInput();
       void clearMemory();
       return;
     }
 
     if (trimmedValue === '/sessions' && canStartAction) {
-      setInputValue('');
+      clearInput();
       void openSessionPicker();
       return;
     }
 
     if (trimmedValue === '/model' && canStartAction) {
-      setInputValue('');
+      clearInput();
       void openModelPicker();
       return;
     }
 
     if (trimmedValue === '/allow' && canStartAction) {
-      setInputValue('');
+      clearInput();
       showAllowedExternalPaths();
       return;
     }
 
     if (trimmedValue.startsWith('/allow ') && canStartAction) {
       const targetPath = trimmedValue.slice('/allow'.length).trim();
-      setInputValue('');
+      clearInput();
       allowExternalPath(targetPath);
       return;
     }
@@ -384,14 +392,14 @@ export function App({ onExit }: { onExit: () => void }) {
     if (trimmedValue === '/new' || trimmedValue.startsWith('/new ')) {
       if (canStartAction) {
         const title = trimmedValue.slice('/new'.length).trim();
-        setInputValue('');
+        clearInput();
         void createSession(title || undefined);
       }
       return;
     }
 
     if (trimmedValue === '/logout') {
-      setInputValue('');
+      clearInput();
       clearSession();
       setIsAuthenticated(false);
       return;
@@ -412,7 +420,7 @@ export function App({ onExit }: { onExit: () => void }) {
     }
 
     if (submitPrompt(value)) {
-      setInputValue('');
+      clearInput();
     }
   };
 
@@ -540,7 +548,7 @@ export function App({ onExit }: { onExit: () => void }) {
       <box
         style={{
           width: '100%',
-          height: 3,
+          minHeight: 3,
           flexDirection: 'row',
           alignItems: 'center',
           flexShrink: 0,
@@ -552,9 +560,9 @@ export function App({ onExit }: { onExit: () => void }) {
         }}
       >
         <text content="> " style={{ fg: assistantMarkerFg, width: 2, flexShrink: 0 }} />
-        <input
+        <textarea
+          ref={textareaRef}
           focused={!anyPickerOpen}
-          value={inputValue}
           placeholder={
             paymentOverlayOpen
               ? 'Pilih nominal top-up terlebih dahulu...'
@@ -564,7 +572,15 @@ export function App({ onExit }: { onExit: () => void }) {
                   ? 'Wait for streaming to finish...'
                   : 'Ask your question...'
           }
-          onInput={setInputValue}
+          wrapMode="word"
+          minHeight={1}
+          maxHeight={6}
+          keyBindings={[
+            { name: 'return', action: 'submit' },
+            { name: 'kpenter', action: 'submit' },
+            { name: 'return', shift: true, action: 'newline' },
+            { name: 'kpenter', shift: true, action: 'newline' },
+          ]}
           onSubmit={handleSubmit}
           style={{
             flexGrow: 1,

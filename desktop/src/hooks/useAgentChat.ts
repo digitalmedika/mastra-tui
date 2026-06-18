@@ -180,10 +180,33 @@ function isTaskListToolName(toolName: string): boolean {
   return toolName === 'task_write' || toolName === 'task_update' || toolName === 'task_complete' || toolName === 'task_check'
 }
 
-function extractTaskRecords(args: any, result?: any): any[] | undefined {
-  if (Array.isArray(result?.tasks)) return result.tasks
-  if (Array.isArray(args?.tasks)) return args.tasks
+function extractTaskRecordsFrom(source: any): any[] | undefined {
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return undefined
+  if (Array.isArray(source.tasks)) return source.tasks
+  for (const key of ['result', 'output', 'value', 'data', 'payload']) {
+    const nested = extractTaskRecordsFrom(source[key])
+    if (nested) return nested
+  }
+  if (Array.isArray(source.content)) {
+    for (const part of source.content) {
+      const nested = extractTaskRecordsFrom(part)
+      if (nested) return nested
+    }
+  }
   return undefined
+}
+
+function extractTaskRecords(args: any, result?: any): any[] | undefined {
+  return extractTaskRecordsFrom(result) ?? extractTaskRecordsFrom(args)
+}
+
+function parseToolInputArgs(input: string): Record<string, unknown> | undefined {
+  try {
+    const parsed = JSON.parse(input)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined
+  } catch {
+    return undefined
+  }
 }
 
 interface SessionChatState {
@@ -200,6 +223,8 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
   const [sessionsChatState, setSessionsChatState] = useState<Record<string, SessionChatState>>({})
   const [balance, setBalance] = useState<string | null>(null)
   const abortControllersRef = useRef<Record<string, AbortController | null>>({})
+  const streamingToolNamesRef = useRef<Record<string, string>>({})
+  const streamingToolInputRef = useRef<Record<string, string>>({})
 
   const mastraReadyRef = useRef(mastraReady)
   useEffect(() => {
@@ -363,6 +388,37 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
 
       if (isTaskListToolName(name)) {
         handleTaskListChunk(sessionId, args)
+      }
+    }
+
+    if (chunk.type === 'tool-call-input-streaming-start') {
+      const toolCallId = chunk.payload?.toolCallId
+      const name = chunk.payload?.toolName
+      if (toolCallId && name) {
+        streamingToolNamesRef.current[toolCallId] = name
+        streamingToolInputRef.current[toolCallId] = ''
+      }
+    }
+
+    if (chunk.type === 'tool-call-delta') {
+      const toolCallId = chunk.payload?.toolCallId
+      const delta = chunk.payload?.argsTextDelta
+      if (toolCallId && typeof delta === 'string') {
+        streamingToolInputRef.current[toolCallId] = `${streamingToolInputRef.current[toolCallId] ?? ''}${delta}`
+      }
+    }
+
+    if (chunk.type === 'tool-call-input-streaming-end') {
+      const toolCallId = chunk.payload?.toolCallId
+      const name = toolCallId ? streamingToolNamesRef.current[toolCallId] : undefined
+      const input = toolCallId ? streamingToolInputRef.current[toolCallId] : undefined
+      if (toolCallId) {
+        delete streamingToolNamesRef.current[toolCallId]
+        delete streamingToolInputRef.current[toolCallId]
+      }
+      if (name && isTaskListToolName(name) && input) {
+        const args = parseToolInputArgs(input)
+        if (args) handleTaskListChunk(sessionId, args)
       }
     }
 

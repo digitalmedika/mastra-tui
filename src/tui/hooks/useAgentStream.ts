@@ -78,14 +78,45 @@ const summarizeArgs = (args: unknown) => {
 
 const cleanTaskText = (text: string) => text.replace(/\*\*/g, '').replace(/`/g, '').replace(/\s+/g, ' ').trim();
 
-const extractTaskRecords = (payload: ToolPayload, fallbackPayload?: ToolPayload): Record<string, unknown>[] | undefined => {
-  const result = asArgsRecord(payload.result) ?? asArgsRecord(fallbackPayload?.result);
-  if (Array.isArray(result?.tasks)) return result.tasks.map(asArgsRecord).filter((item): item is Record<string, unknown> => Boolean(item));
+const taskRecordListFrom = (source: unknown): Record<string, unknown>[] | undefined => {
+  const record = asArgsRecord(source);
+  if (!record) return undefined;
+  if (Array.isArray(record.tasks)) {
+    return record.tasks.map(asArgsRecord).filter((item): item is Record<string, unknown> => Boolean(item));
+  }
 
-  const args = asArgsRecord(payload.args) ?? asArgsRecord(fallbackPayload?.args);
-  if (Array.isArray(args?.tasks)) return args.tasks.map(asArgsRecord).filter((item): item is Record<string, unknown> => Boolean(item));
+  for (const key of ['result', 'output', 'value', 'data', 'payload']) {
+    const nested = taskRecordListFrom(record[key]);
+    if (nested) return nested;
+  }
+
+  const content = record.content;
+  if (Array.isArray(content)) {
+    for (const part of content) {
+      const nested = taskRecordListFrom(part);
+      if (nested) return nested;
+    }
+  }
 
   return undefined;
+};
+
+const extractTaskRecords = (payload: ToolPayload, fallbackPayload?: ToolPayload): Record<string, unknown>[] | undefined => {
+  return (
+    taskRecordListFrom(payload.result) ??
+    taskRecordListFrom(fallbackPayload?.result) ??
+    taskRecordListFrom(payload.args) ??
+    taskRecordListFrom(fallbackPayload?.args) ??
+    taskRecordListFrom(payload)
+  );
+};
+
+const parseToolInputArgs = (argsText: string): Record<string, unknown> | undefined => {
+  try {
+    return asArgsRecord(JSON.parse(argsText));
+  } catch {
+    return undefined;
+  }
 };
 
 type ApprovalResume = (approved: boolean) => Promise<boolean>;
@@ -273,6 +304,8 @@ export function useAgentStream() {
     const toolDescriptions = new Map<string, string>();
     const toolPayloads = new Map<string, ToolPayload>();
     const toolStartedAt = new Map<string, number>();
+    const streamingToolNames = new Map<string, string>();
+    const streamingToolInput = new Map<string, string>();
     const activeToolLines = new Map<number, string>();
     const activeToolLineByCallId = new Map<string, number>();
     const pendingToolLineByName = new Map<string, number>();
@@ -369,6 +402,33 @@ export function useAgentStream() {
         currentTaskIndex = nextTasks.find((task) => task.current)?.index ?? null;
         return;
       }
+    };
+
+    const rememberStreamingToolInputStart = (payload: ToolPayload) => {
+      if (!payload.toolCallId || !payload.toolName) return;
+      streamingToolNames.set(payload.toolCallId, payload.toolName);
+      streamingToolInput.set(payload.toolCallId, '');
+    };
+
+    const appendStreamingToolInput = (payload: ToolPayload & { argsTextDelta?: unknown }) => {
+      if (!payload.toolCallId || typeof payload.argsTextDelta !== 'string') return;
+      streamingToolInput.set(payload.toolCallId, `${streamingToolInput.get(payload.toolCallId) ?? ''}${payload.argsTextDelta}`);
+    };
+
+    const finalizeStreamingToolInput = (payload: ToolPayload) => {
+      if (!payload.toolCallId) return;
+      const toolName = streamingToolNames.get(payload.toolCallId);
+      const argsText = streamingToolInput.get(payload.toolCallId);
+      streamingToolInput.delete(payload.toolCallId);
+      streamingToolNames.delete(payload.toolCallId);
+      if (!toolName || !argsText) return;
+
+      const args = parseToolInputArgs(argsText);
+      if (!args) return;
+
+      const toolPayload = { ...payload, toolName, args };
+      toolPayloads.set(payload.toolCallId, toolPayload);
+      applyTaskListTool(toolPayload);
     };
 
     const mergeTokenUsage = (base: TokenUsage | undefined, next: TokenUsage | undefined): TokenUsage | undefined => {
@@ -745,6 +805,21 @@ export function useAgentStream() {
           }
         }
 
+        if (chunk.type === 'tool-call-input-streaming-start') {
+          rememberStreamingToolInputStart(chunk.payload);
+          const label = getToolLabel(chunk.payload.toolName);
+          const lineId = appendProgressEvent(label, '');
+          if (chunk.payload.toolName) pendingToolLineByName.set(chunk.payload.toolName, lineId);
+        }
+
+        if (chunk.type === 'tool-call-delta') {
+          appendStreamingToolInput(chunk.payload);
+        }
+
+        if (chunk.type === 'tool-call-input-streaming-end') {
+          finalizeStreamingToolInput(chunk.payload);
+        }
+
         if (chunk.type === 'tool-result') {
           const description = (chunk.payload.toolCallId && toolDescriptions.get(chunk.payload.toolCallId)) || describeTool(chunk.payload);
           const lineId = (chunk.payload.toolCallId && activeToolLineByCallId.get(chunk.payload.toolCallId)) || undefined;
@@ -973,9 +1048,18 @@ export function useAgentStream() {
           }
 
           if (chunk.type === 'tool-call-input-streaming-start') {
+            rememberStreamingToolInputStart(chunk.payload);
             const label = getToolLabel(chunk.payload.toolName);
             const lineId = appendProgressEvent(label, '');
             if (chunk.payload.toolName) pendingToolLineByName.set(chunk.payload.toolName, lineId);
+          }
+
+          if (chunk.type === 'tool-call-delta') {
+            appendStreamingToolInput(chunk.payload);
+          }
+
+          if (chunk.type === 'tool-call-input-streaming-end') {
+            finalizeStreamingToolInput(chunk.payload);
           }
 
           if (chunk.type === 'tool-result') {
