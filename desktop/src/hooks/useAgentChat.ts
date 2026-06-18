@@ -209,6 +209,17 @@ function parseToolInputArgs(input: string): Record<string, unknown> | undefined 
   }
 }
 
+function createRequestContext(values: Record<string, unknown>) {
+  const store = new Map(Object.entries(values))
+  return {
+    get: (key: string) => store.get(key),
+    set: (key: string, value: unknown) => {
+      store.set(key, value)
+    },
+    entries: () => store.entries(),
+  }
+}
+
 interface SessionChatState {
   messages: Message[]
   tasks: TaskItem[]
@@ -347,9 +358,21 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
           current: t?.status === 'in_progress',
         }))
         .filter((t: TaskItem) => t.text)
+      if (next.length === 0) return
       updateSessionChatState(sessionId, { tasks: next })
     }
   }, [updateSessionChatState])
+
+  const handleHarnessEvent = useCallback((sessionId: string, event: any) => {
+    if (event?.type === 'task_updated') {
+      handleTaskListChunk(sessionId, { tasks: event.tasks })
+      return
+    }
+
+    if (event?.type === 'display_state_changed' && Array.isArray(event.displayState?.tasks)) {
+      handleTaskListChunk(sessionId, { tasks: event.displayState.tasks })
+    }
+  }, [handleTaskListChunk])
 
   const handleStreamChunk = useCallback(async (sessionId: string, chunk: any, assistantMsgId: string) => {
     const abortController = abortControllersRef.current[sessionId]
@@ -522,6 +545,11 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
         return
       }
 
+      if (event.type === 'harness-event') {
+        handleHarnessEvent(sessionId, event.event)
+        return
+      }
+
       if (event.type === 'done' || event.type === 'cancelled') {
         updateSessionChatState(sessionId, (prev) => {
           const messages = prev.messages.map((m) =>
@@ -546,7 +574,7 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
         })
       }
     })
-  }, [handleStreamChunk, refreshBalance, updateSessionChatState])
+  }, [handleHarnessEvent, handleStreamChunk, refreshBalance, updateSessionChatState])
 
   const resumeApproval = useCallback(async (
     sessionId: string,
@@ -675,10 +703,15 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
         },
         requireToolApproval: true,
         ...(taskContext ? { system: taskContext } : {}),
-        requestContext: {
+        requestContext: createRequestContext({
           [workspacePathContextKey]: workspace?.path || '',
           [allowedExternalWorkspacePathsKey]: state.allowedPaths,
-        } as any,
+          harness: {
+            threadId: sessionId,
+            resourceId: session?.workspaceId || 'desktop-user',
+            emitEvent: (event: unknown) => handleHarnessEvent(sessionId, event),
+          },
+        }) as any,
       })
 
       await streamResponse.processDataStream({

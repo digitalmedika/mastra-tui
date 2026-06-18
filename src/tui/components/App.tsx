@@ -53,6 +53,7 @@ export function App({ onExit }: { onExit: () => void }) {
     selectedModelId,
     modelPickerOpen,
     modelsLoaded,
+    modelsLoading,
     openModelPicker,
     closeModelPicker,
     selectModel,
@@ -76,6 +77,9 @@ export function App({ onExit }: { onExit: () => void }) {
   const pendingApprovalEvent = getPendingApprovalEvent(events);
   const approvalOverlayOpen = status === 'awaiting-approval' && pendingApprovalEvent !== null;
   const sessionOptions = sessions.map(toSessionOption);
+  const lastCtrlCPressRef = useRef(0);
+  const exitHintTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showExitHint, setShowExitHint] = useState(false);
   const selectedSessionIndex = Math.max(
     0,
     sessions.findIndex((session) => session.id === currentSession.id),
@@ -280,7 +284,26 @@ export function App({ onExit }: { onExit: () => void }) {
         closeSessionPicker();
         return;
       }
-      onExit();
+      return;
+    }
+
+    // Ctrl+C double press to exit
+    if (key.name === 'c' && key.ctrl) {
+      const now = Date.now();
+      if (lastCtrlCPressRef.current > 0 && now - lastCtrlCPressRef.current < 1500) {
+        onExit();
+        return;
+      }
+      lastCtrlCPressRef.current = now;
+      setShowExitHint(true);
+      if (exitHintTimeoutRef.current) {
+        clearTimeout(exitHintTimeoutRef.current);
+      }
+      exitHintTimeoutRef.current = setTimeout(() => {
+        setShowExitHint(false);
+        lastCtrlCPressRef.current = 0;
+      }, 1500);
+      return;
     }
   });
 
@@ -489,7 +512,12 @@ export function App({ onExit }: { onExit: () => void }) {
             <Badge label="MODELS" bg={runBg} />
             <text content={`  choose a model (current: ${selectedModelId}), then press enter`} style={{ fg: mutedFg }} />
           </box>
-          {modelsLoaded && modelOptions.length === 0 ? (
+          {modelsLoading ? (
+            <box style={{ width: '100%', paddingTop: 1, paddingBottom: 1 }}>
+              <StreamingIndicator />
+              <text content="  Loading models from catalog..." style={{ fg: mutedFg }} />
+            </box>
+          ) : modelsLoaded && modelOptions.length === 0 ? (
             <box style={{ width: '100%', flexDirection: 'column', paddingTop: 1, paddingBottom: 1 }}>
               <text content="  No models available from the catalog." style={{ fg: mutedFg }} />
               <text content="  Falling back to default model." style={{ fg: mutedFg }} />
@@ -594,6 +622,23 @@ export function App({ onExit }: { onExit: () => void }) {
         />
         {status === 'streaming' ? <StreamingIndicator /> : null}
       </box>
+      {showExitHint ? (
+        <box
+          style={{
+            width: '100%',
+            height: 1,
+            flexDirection: 'row',
+            flexShrink: 0,
+            paddingLeft: 1,
+            paddingRight: 1,
+          }}
+        >
+          <text
+            content="Press Ctrl+C again to exit"
+            style={{ fg: '#FFD700' }}
+          />
+        </box>
+      ) : null}
       {versionResult?.hasUpdate && versionResult.latest ? (
         <box
           style={{

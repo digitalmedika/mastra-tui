@@ -119,6 +119,17 @@ const parseToolInputArgs = (argsText: string): Record<string, unknown> | undefin
   }
 };
 
+const taskRecordsToItems = (taskRecords: Record<string, unknown>[]): TaskItem[] => {
+  return taskRecords
+    .map((record, index) => {
+      const text = typeof record.content === 'string' ? cleanTaskText(record.content) : '';
+      const st = typeof record.status === 'string' ? record.status : 'pending';
+      const id = typeof record.id === 'string' ? record.id : undefined;
+      return { ...(id ? { id } : {}), index: index + 1, text, done: st === 'completed', current: st === 'in_progress' };
+    })
+    .filter((item): item is TaskItem => Boolean(item && item.text));
+};
+
 type ApprovalResume = (approved: boolean) => Promise<boolean>;
 
 const buildTaskContext = (tasks: TaskItem[]) => {
@@ -175,6 +186,7 @@ export function useAgentStream() {
   const [selectedModelId, setSelectedModelIdState] = useState<string>(() => getCurrentModelId());
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelsLoaded, setModelsLoaded] = useState(false);
+  const [modelsLoading, setModelsLoading] = useState(false);
 
   // Initialize model store on mount
   useEffect(() => {
@@ -389,19 +401,25 @@ export function useAgentStream() {
 
       const taskRecords = extractTaskRecords(payload, fallbackPayload);
       if (taskRecords) {
-        const nextTasks = taskRecords
-          .map((record, index) => {
-            const text = typeof record.content === 'string' ? cleanTaskText(record.content) : '';
-            const st = typeof record.status === 'string' ? record.status : 'pending';
-            const id = typeof record.id === 'string' ? record.id : undefined;
-            return { ...(id ? { id } : {}), index: index + 1, text, done: st === 'completed', current: st === 'in_progress' };
-          })
-          .filter((item): item is TaskItem => Boolean(item && item.text));
-
+        const nextTasks = taskRecordsToItems(taskRecords);
+        if (nextTasks.length === 0) return;
         setTasks(nextTasks);
         currentTaskIndex = nextTasks.find((task) => task.current)?.index ?? null;
         return;
       }
+    };
+
+    const applyHarnessEvent = (event: unknown) => {
+      const record = asArgsRecord(event);
+      if (record?.type !== 'task_updated') return;
+      const taskRecords = Array.isArray(record.tasks)
+        ? record.tasks.map(asArgsRecord).filter((item): item is Record<string, unknown> => Boolean(item))
+        : [];
+      hasStructuredTaskList = true;
+      const nextTasks = taskRecordsToItems(taskRecords);
+      if (nextTasks.length === 0) return;
+      setTasks(nextTasks);
+      currentTaskIndex = nextTasks.find((task) => task.current)?.index ?? null;
     };
 
     const rememberStreamingToolInputStart = (payload: ToolPayload) => {
@@ -471,6 +489,11 @@ export function useAgentStream() {
     const createRequestContext = () => new RequestContext([
       [workspacePathKey, workspacePath],
       [allowedExternalWorkspacePathsKey, getAllowedExternalWorkspacePaths(currentSession.id)],
+      ['harness', {
+        threadId: currentSession.id,
+        resourceId: tuiResourceId,
+        emitEvent: applyHarnessEvent,
+      }],
     ]);
 
     const shouldRequireToolApproval = ({ args }: { toolName?: string; args?: unknown }) => {
@@ -1341,8 +1364,10 @@ export function useAgentStream() {
 
   const openModelPicker = useCallback(async () => {
     if (status === 'streaming' || status === 'awaiting-approval') return false;
-    await refreshModels();
     setModelPickerOpen(true);
+    setModelsLoading(true);
+    await refreshModels();
+    setModelsLoading(false);
     return true;
   }, [refreshModels, status]);
 
@@ -1364,7 +1389,7 @@ export function useAgentStream() {
   return {
     events, tasks, status, currentSession, sessions, sessionPickerOpen,
     submitPrompt, respondToApproval, allowExternalPath, showAllowedExternalPaths, clearMemory, createSession, openSessionPicker, closeSessionPicker, selectSession,
-    models, selectedModelId, modelPickerOpen, modelsLoaded,
+    models, selectedModelId, modelPickerOpen, modelsLoaded, modelsLoading,
     refreshModels, openModelPicker, closeModelPicker, selectModel,
   };
 }

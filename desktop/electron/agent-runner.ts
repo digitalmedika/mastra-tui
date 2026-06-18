@@ -80,10 +80,15 @@ function getToolPathForApproval(args: unknown) {
   return normalizePath(pathValue)
 }
 
-function createRequestContext(state: AgentStreamState) {
+function createRequestContext(state: AgentStreamState): any {
   return new RequestContext([
     [workspacePathKey, state.workspacePath],
     [allowedExternalWorkspacePathsKey, state.allowedPaths],
+    ['harness', {
+      threadId: state.sessionId,
+      resourceId: state.workspaceId || 'desktop-user',
+      emitEvent: (event: unknown) => sendAgentEvent(state, { type: 'harness-event', event: event as Record<string, unknown> }),
+    }],
   ])
 }
 

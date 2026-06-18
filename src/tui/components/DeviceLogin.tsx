@@ -33,7 +33,7 @@ export function DeviceLogin({ onLogin }: DeviceLoginProps) {
           <text content={`Error: ${error}`} style={{ fg: redFg }} />
         )}
         <box style={{ height: 2 }} />
-        <text content="Press esc to exit." style={{ fg: mutedFg }} />
+        <text content="Press Ctrl+C twice to exit." style={{ fg: mutedFg }} />
       </box>
     </box>
   );
