@@ -6,8 +6,12 @@ import { build } from 'esbuild';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const packageJson = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));
 const outfile = resolve(root, 'dist/tui/cli.js');
+const bundledDependencies = new Set([
+  '@opentui/react',
+  'react',
+]);
 const externalDependencies = Object.keys(packageJson.dependencies ?? {}).filter(
-  (name) => name !== '@opentui/react',
+  (name) => !bundledDependencies.has(name),
 );
 
 await rm(resolve(root, 'dist/tui'), { force: true, recursive: true });

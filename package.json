@@ -1,6 +1,6 @@
 {
   "name": "loccle",
-  "version": "1.0.18",
+  "version": "1.0.19",
   "description": "Terminal UI for Loccle powered by Mastra and OpenTUI.",
   "main": "dist/tui/cli.js",
   "module": "dist/tui/cli.js",
