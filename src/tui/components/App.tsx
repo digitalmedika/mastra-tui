@@ -18,6 +18,7 @@ import { StreamView } from './StreamView';
 import { PaymentOverlay, PAYMENT_AMOUNTS, type PaymentData, type PaymentPhase } from './PaymentOverlay';
 import pkg from '../../../package.json';
 import { TextareaRenderable } from '@opentui/core';
+import { SlashCommandSuggestion, filterSlashCommands, type SlashCommand } from './SlashCommandSuggestion';
 
 const hasPositiveBalance = (value: string | null) => {
   const numeric = Number(value);
@@ -99,6 +100,11 @@ export function App({ onExit }: { onExit: () => void }) {
   const activeModel = models.find((m) => m.publicModelId === selectedModelId);
   const modelDisplayName = activeModel ? activeModel.name : selectedModelId;
 
+  // Slash command suggestion state
+  const [slashVisible, setSlashVisible] = useState(false);
+  const [slashSuggestions, setSlashSuggestions] = useState<SlashCommand[]>([]);
+  const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
+
   const refreshBalance = useCallback(async () => {
     const session = getStoredSession();
     if (!session) return null;
@@ -145,6 +151,14 @@ export function App({ onExit }: { onExit: () => void }) {
 
     setApprovalSubmitting(false);
   }, [approvalOverlayOpen, pendingApprovalEvent?.id]);
+
+  // Dismiss slash suggestions when any picker becomes open
+  useEffect(() => {
+    if (anyPickerOpen) {
+      setSlashVisible(false);
+      setSlashSuggestions([]);
+    }
+  }, [anyPickerOpen]);
 
   // Refresh balance after each streaming request completes
   const prevStatusRef = useRef(status);
@@ -272,6 +286,57 @@ export function App({ onExit }: { onExit: () => void }) {
         void handleApprovalDecision(false);
         return;
       }
+      return;
+    }
+
+    // Slash command suggestion keyboard navigation
+    if (slashVisible) {
+      if (key.name === 'up') {
+        key.preventDefault();
+        setSlashSelectedIndex((prev) => (prev > 0 ? prev - 1 : slashSuggestions.length - 1));
+        return;
+      }
+      if (key.name === 'down') {
+        key.preventDefault();
+        setSlashSelectedIndex((prev) => (prev < slashSuggestions.length - 1 ? prev + 1 : 0));
+        return;
+      }
+      if (key.name === 'tab') {
+        key.preventDefault();
+        const selected = slashSuggestions[slashSelectedIndex];
+        if (selected) {
+          textareaRef.current?.setText(selected.insertText);
+          setInputValue(selected.insertText);
+          setSlashVisible(false);
+        }
+        return;
+      }
+      if (key.name === 'return') {
+        key.preventDefault();
+        const selected = slashSuggestions[slashSelectedIndex];
+        if (selected) {
+          textareaRef.current?.setText(selected.insertText);
+          setInputValue(selected.insertText);
+          setSlashVisible(false);
+          // Auto-submit only when insertText equals command (no arguments to fill)
+          if (selected.insertText === selected.command) {
+            handleSubmit();
+          }
+        }
+        return;
+      }
+      if (key.name === 'escape') {
+        key.preventDefault();
+        setSlashVisible(false);
+        return;
+      }
+      // For any other key, dismiss but let textarea handle it
+      const isPrintable = key.sequence && key.sequence.length > 0 && !key.ctrl && !key.meta && key.name.length === 1;
+      if (!isPrintable) {
+        // Non-printable keys not handled above → dismiss suggestions
+        setSlashVisible(false);
+      }
+      // Let the key through to the textarea for printable chars (will trigger onContentChange)
       return;
     }
 
@@ -573,6 +638,11 @@ export function App({ onExit }: { onExit: () => void }) {
           <TaskListPanel tasks={tasks} sidePanel terminalWidth={terminalWidth} />
         ) : null}
       </box>
+      <SlashCommandSuggestion
+        suggestions={slashSuggestions}
+        selectedIndex={slashSelectedIndex}
+        visible={slashVisible}
+      />
       <box
         style={{
           width: '100%',
@@ -609,6 +679,19 @@ export function App({ onExit }: { onExit: () => void }) {
             { name: 'return', shift: true, action: 'newline' },
             { name: 'kpenter', shift: true, action: 'newline' },
           ]}
+          onContentChange={() => {
+            const text = textareaRef.current?.plainText ?? '';
+            const suggestions = filterSlashCommands(text, status);
+            if (suggestions.length > 0) {
+              setSlashSuggestions(suggestions);
+              setSlashSelectedIndex(0);
+              setSlashVisible(true);
+            } else {
+              setSlashVisible(false);
+              setSlashSuggestions([]);
+            }
+            setInputValue(text);
+          }}
           onSubmit={handleSubmit}
           style={{
             flexGrow: 1,

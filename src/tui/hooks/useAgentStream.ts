@@ -130,6 +130,10 @@ const taskRecordsToItems = (taskRecords: Record<string, unknown>[]): TaskItem[] 
     .filter((item): item is TaskItem => Boolean(item && item.text));
 };
 
+const findTaskPatchArgs = (payload: ToolPayload, fallbackPayload?: ToolPayload) => {
+  return asArgsRecord(payload.args) ?? asArgsRecord(fallbackPayload?.args);
+};
+
 type ApprovalResume = (approved: boolean) => Promise<boolean>;
 
 const buildTaskContext = (tasks: TaskItem[]) => {
@@ -402,11 +406,41 @@ export function useAgentStream() {
       const taskRecords = extractTaskRecords(payload, fallbackPayload);
       if (taskRecords) {
         const nextTasks = taskRecordsToItems(taskRecords);
-        if (nextTasks.length === 0) return;
-        setTasks(nextTasks);
-        currentTaskIndex = nextTasks.find((task) => task.current)?.index ?? null;
-        return;
+        if (nextTasks.length > 0) {
+          setTasks(nextTasks);
+          currentTaskIndex = nextTasks.find((task) => task.current)?.index ?? null;
+          return;
+        }
       }
+
+      if (toolName !== 'task_update' && toolName !== 'task_complete') return;
+      const args = findTaskPatchArgs(payload, fallbackPayload);
+      const id = typeof args?.id === 'string' ? args.id : typeof args?.id === 'number' ? String(args.id) : undefined;
+      if (!id) return;
+
+      setTasks((current) => {
+        let changed = false;
+        const next = current.map((task) => {
+          const matches = task.id === id || String(task.index) === id;
+          if (!matches) {
+            return toolName === 'task_update' && args?.status === 'in_progress' ? { ...task, current: false } : task;
+          }
+
+          changed = true;
+          const status = toolName === 'task_complete' ? 'completed' : typeof args?.status === 'string' ? args.status : undefined;
+          const text = typeof args?.content === 'string' ? cleanTaskText(args.content) : task.text;
+          return {
+            ...task,
+            text,
+            done: status === 'completed' ? true : status === 'pending' || status === 'in_progress' ? false : task.done,
+            current: status === 'in_progress' ? true : status === 'completed' || status === 'pending' ? false : task.current,
+          };
+        });
+        if (!changed) return current;
+        currentTaskIndex = next.find((task) => task.current)?.index ?? null;
+        return next;
+      });
+      return;
     };
 
     const applyHarnessEvent = (event: unknown) => {

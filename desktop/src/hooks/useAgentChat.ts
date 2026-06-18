@@ -363,6 +363,34 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
     }
   }, [updateSessionChatState])
 
+  const handleTaskPatchChunk = useCallback((sessionId: string, toolName: string, args: any) => {
+    if (toolName !== 'task_update' && toolName !== 'task_complete') return
+    const rawId = args?.id
+    const id = typeof rawId === 'string' ? rawId : typeof rawId === 'number' ? String(rawId) : undefined
+    if (!id) return
+
+    updateSessionChatState(sessionId, (prev) => {
+      let changed = false
+      const tasks = prev.tasks.map((task) => {
+        const matches = task.id === id || String(task.index) === id
+        if (!matches) {
+          return toolName === 'task_update' && args?.status === 'in_progress' ? { ...task, current: false } : task
+        }
+
+        changed = true
+        const status = toolName === 'task_complete' ? 'completed' : typeof args?.status === 'string' ? args.status : undefined
+        const text = typeof args?.content === 'string' ? cleanTaskText(args.content) : task.text
+        return {
+          ...task,
+          text,
+          done: status === 'completed' ? true : status === 'pending' || status === 'in_progress' ? false : task.done,
+          current: status === 'in_progress' ? true : status === 'completed' || status === 'pending' ? false : task.current,
+        }
+      })
+      return changed ? { ...prev, tasks } : prev
+    })
+  }, [updateSessionChatState])
+
   const handleHarnessEvent = useCallback((sessionId: string, event: any) => {
     if (event?.type === 'task_updated') {
       handleTaskListChunk(sessionId, { tasks: event.tasks })
@@ -411,6 +439,7 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
 
       if (isTaskListToolName(name)) {
         handleTaskListChunk(sessionId, args)
+        handleTaskPatchChunk(sessionId, name, args)
       }
     }
 
@@ -441,7 +470,10 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
       }
       if (name && isTaskListToolName(name) && input) {
         const args = parseToolInputArgs(input)
-        if (args) handleTaskListChunk(sessionId, args)
+        if (args) {
+          handleTaskListChunk(sessionId, args)
+          handleTaskPatchChunk(sessionId, name, args)
+        }
       }
     }
 
@@ -451,6 +483,7 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
       const name = chunk.payload?.toolName ?? ''
       if (isTaskListToolName(name) || Array.isArray(chunk.payload?.result?.tasks)) {
         handleTaskListChunk(sessionId, chunk.payload?.args ?? {}, chunk.payload?.result)
+        handleTaskPatchChunk(sessionId, name, chunk.payload?.args ?? {})
       }
       updateSessionChatState(sessionId, (prev) => ({
         ...prev,
@@ -530,7 +563,7 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
         }))
       }
     }
-  }, [handleTaskListChunk, getSessionChatState, updateSessionChatState])
+  }, [handleTaskListChunk, handleTaskPatchChunk, getSessionChatState, updateSessionChatState])
 
   useEffect(() => {
     if (!electron?.onAgentStreamEvent) return
