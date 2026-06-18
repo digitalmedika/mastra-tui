@@ -1,5 +1,8 @@
 import { createTool } from '@mastra/core/tools';
-import { requireFilesystem } from '@mastra/core/workspace';
+import type { ToolExecutionContext } from '@mastra/core/tools';
+import { RequestContext } from '@mastra/core/request-context';
+import { requireFilesystem, requireWorkspace } from '@mastra/core/workspace';
+import type { WorkspaceFilesystem } from '@mastra/core/workspace';
 import { z } from 'zod';
 
 const readManyFileResultSchema = z.object({
@@ -30,6 +33,25 @@ const toErrorMessage = (error: unknown) => {
   return error instanceof Error ? error.message : String(error);
 };
 
+const resolveFilesystem = async (context: ToolExecutionContext): Promise<WorkspaceFilesystem> => {
+  try {
+    return requireFilesystem(context).filesystem;
+  } catch (error) {
+    const workspace = requireWorkspace(context);
+    if (!workspace.hasFilesystemConfig()) {
+      throw error;
+    }
+
+    const requestContext = context.requestContext ?? new RequestContext();
+    const filesystem = await workspace.resolveFilesystem({ requestContext });
+    if (!filesystem) {
+      throw error;
+    }
+
+    return filesystem;
+  }
+};
+
 export const readManyFiles = createTool({
   id: 'readManyFiles',
   description:
@@ -46,7 +68,7 @@ export const readManyFiles = createTool({
     files: z.array(readManyFileResultSchema),
   }),
   execute: async ({ paths }: ReadManyFilesInput, context) => {
-    const { filesystem } = requireFilesystem(context);
+    const filesystem = await resolveFilesystem(context);
 
     const files = await Promise.all(
       paths.map(async (filePath): Promise<ReadManyFileResult> => {

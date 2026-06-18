@@ -105,7 +105,7 @@ export type ShellEvent = {
 export type TaskListEvent = {
   id: number;
   type: 'task-list';
-  label: 'TASK';
+  label: 'TASK' | 'CHECK';
   summary: string;
   status: 'running' | 'done' | 'error';
 };

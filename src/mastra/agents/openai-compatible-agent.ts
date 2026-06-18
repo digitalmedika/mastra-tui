@@ -8,7 +8,7 @@ import { Memory } from '@mastra/memory';
 import { getStoredSession } from '../../tui/auth/storage';
 import { findProjectRoot, getRequestAllowedExternalWorkspacePaths, getRequestWorkspacePath } from '../../workspace';
 import { readManyFiles } from '../tools/read-many-files-tool';
-import { tuiTaskList } from '../tools/tui-task-list-tool';
+import { taskCheck, taskWrite, tuiTaskList } from '../tools/tui-task-list-tool';
 
 const projectRoot = findProjectRoot();
 
@@ -63,10 +63,16 @@ const instructions = `You are a vibe coding assistant: a collaborative software 
 When responding:
 - Start from the user's intent, even when the brief is casual or incomplete
 - Propose a simple implementation path, then help refine it through feedback
-- When a task needs multiple steps, call tuiTaskList with action=set before starting work
-- Call tuiTaskList with action=update and status=in_progress when starting a task
-- Call tuiTaskList with action=update and status=completed immediately after finishing a task
+- For simple tasks such as typo fixes, small edits, or single-file changes, just do the work
+- For non-trivial tasks such as 3+ files, architectural decisions, unclear requirements, or multi-step implementation, use task_write to track steps before starting work
+- When using task_write, pass the full task list every time; exactly one task should be in_progress while work is underway
+- Mark a task in_progress before starting it, then mark it completed immediately after finishing and verifying that task; do not batch completions at the end
+- Before ending any non-trivial task that used task_write, call task_check with the full current task list and only give a final response if allCompleted is true
+- If task_check says tasks remain pending or in_progress, continue working or update the checklist before claiming completion
+- tuiTaskList is available only as a legacy checklist tool; prefer task_write and task_check for new task tracking
 - When asked about the visible task list, treat the current TUI checklist context as authoritative; do not claim every task is complete while any visible checklist item is pending or in_progress
+- If a same-session prompt arrives after all visible checklist items are completed, treat that checklist as historical context and start a new checklist only when the new request is non-trivial
+- If a same-session prompt arrives while visible checklist items are pending or in_progress, treat that checklist as active state: continue it when the user is following up, or replace it with task_write only when the user clearly changes to a new task
 - Favor small, working increments over over-engineered plans
 - When exactly one file needs to be read, use the built-in mastra_workspace_read_file tool
 - When two or more known file paths need to be read, use readManyFiles so the files are read together in one tool call
@@ -91,7 +97,7 @@ function createAgent(): Agent {
     name: 'Vibe Coding Agent',
     instructions,
     model: buildModelConfig(),
-    tools: { tuiTaskList, readManyFiles },
+    tools: { tuiTaskList, task_write: taskWrite, task_check: taskCheck, readManyFiles },
     workspace: vibeCodingWorkspace,
     memory: new Memory({
       storage: new LibSQLStore({

@@ -48,7 +48,7 @@ export const isShellTool = (toolName: string | undefined) => {
 };
 
 export const isTaskListToolName = (toolName: string | undefined) => {
-  return toolName === 'tuiTaskList';
+  return toolName === 'tuiTaskList' || toolName === 'task_write' || toolName === 'task_check';
 };
 
 const findStartLine = (filePath: string, needle: string | undefined) => {
@@ -104,6 +104,21 @@ export const createShellEvent = (
 
 export const summarizeTaskList = (payload: ToolPayload, fallbackPayload?: ToolPayload) => {
   const args = getPayloadArgs(payload, fallbackPayload);
+  const toolName = payload.toolName ?? fallbackPayload?.toolName;
+
+  if (toolName === 'task_write') {
+    const tasks = Array.isArray(args?.tasks) ? args.tasks : [];
+    return `updating checklist (${tasks.length} tasks)`;
+  }
+
+  if (toolName === 'task_check') {
+    const result = isRecord(payload.result) ? payload.result : undefined;
+    const completed = typeof result?.completed === 'number' ? result.completed : undefined;
+    const total = typeof result?.total === 'number' ? result.total : undefined;
+    return completed !== undefined && total !== undefined
+      ? `checking checklist (${completed}/${total} completed)`
+      : 'checking checklist completion';
+  }
 
   if (args?.action === 'set' && Array.isArray(args.tasks)) {
     return `updating checklist (${args.tasks.length} tasks)`;
@@ -130,7 +145,7 @@ export const createTaskListEvent = (
   return {
     id,
     type: 'task-list',
-    label: 'TASK',
+    label: toolName === 'task_check' ? 'CHECK' : 'TASK',
     summary: summarizeTaskList(payload, fallbackPayload),
     status,
   };

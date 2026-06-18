@@ -85,6 +85,10 @@ function summarizeTool(toolName: string, args: any): string {
       if (args?.action === 'set') return `Checklist (${args?.tasks?.length ?? 0} tasks)`
       return `Checklist update`
     }
+    case 'task_write':
+      return `Checklist (${Array.isArray(args?.tasks) ? args.tasks.length : 0} tasks)`
+    case 'task_check':
+      return `Checking checklist (${Array.isArray(args?.tasks) ? args.tasks.length : 0} tasks)`
     default: return `${toolName}`
   }
 }
@@ -135,7 +139,8 @@ const extractMemoryMessageText = (content: unknown): string => {
 
 function toolLabel(toolName: string): string {
   switch (toolName) {
-    case 'tuiTaskList': return 'TASK'
+    case 'tuiTaskList': case 'task_write': return 'TASK'
+    case 'task_check': return 'CHECK'
     case 'mastra_workspace_read_file': case 'readManyFiles': return 'READ'
     case 'mastra_workspace_write_file': case 'mastra_workspace_edit_file': return 'EDIT'
     case 'mastra_workspace_list_files': case 'mastra_workspace_grep': return 'EXPLORE'
@@ -146,11 +151,16 @@ function toolLabel(toolName: string): string {
 
 function buildTaskContext(tasks: TaskItem[]): string | undefined {
   if (tasks.length === 0) return undefined
+  const completed = tasks.filter((t) => t.done).length
+  const allCompleted = completed === tasks.length
   const lines = tasks.map((t) => {
     const status = t.done ? 'completed' : t.current ? 'in_progress' : 'pending'
     return `- ${t.index}. [${status}] ${t.text}`
   })
-  return `Current TUI checklist:\n${lines.join('\n')}`
+  if (allCompleted) {
+    return `Previous visible TUI checklist state (all completed):\n${lines.join('\n')}\n\nTreat this as historical context for the same session. Do not continue or re-open this checklist unless the user explicitly asks about it. For a new non-trivial request, create a fresh checklist with task_write.`
+  }
+  return `Current visible TUI checklist state (unfinished):\n${lines.join('\n')}\n\nTreat this checklist as active and authoritative. If the user is following up on this work, continue from the unfinished checklist and call task_write with the full updated list before claiming progress. If the user clearly changes to a new unrelated task, replace the checklist with task_write for the new task.`
 }
 
 function nameToEventType(toolName: string): ToolEvent['type'] {
@@ -159,9 +169,13 @@ function nameToEventType(toolName: string): ToolEvent['type'] {
     case 'mastra_workspace_read_file': case 'readManyFiles': return 'read'
     case 'mastra_workspace_list_files': case 'mastra_workspace_grep': return 'explore'
     case 'mastra_workspace_shell': case 'mastra_workspace_execute_command': return 'shell'
-    case 'tuiTaskList': return 'task-list'
+    case 'tuiTaskList': case 'task_write': case 'task_check': return 'task-list'
     default: return 'run'
   }
+}
+
+function isTaskListToolName(toolName: string): boolean {
+  return toolName === 'tuiTaskList' || toolName === 'task_write' || toolName === 'task_check'
 }
 
 interface SessionChatState {
@@ -289,6 +303,19 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
   }, [currentSessionId, mastraReady, getSessionChatState, updateSessionChatState])
 
   const handleTaskListChunk = useCallback((sessionId: string, args: any) => {
+    if (Array.isArray(args?.tasks) && !args?.action) {
+      const next = args.tasks
+        .map((t: any, index: number) => ({
+          index: index + 1,
+          text: cleanTaskText(typeof t?.content === 'string' ? t.content : ''),
+          done: t?.status === 'completed',
+          current: t?.status === 'in_progress',
+        }))
+        .filter((t: TaskItem) => t.text)
+      updateSessionChatState(sessionId, { tasks: next })
+      return
+    }
+
     if (args?.action === 'set' && Array.isArray(args.tasks)) {
       const next = args.tasks
         .filter((t: any) => t && typeof t.id === 'number' && typeof t.title === 'string')
@@ -352,7 +379,7 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
         toolEvents: [...prev.toolEvents, toolEvent]
       }))
 
-      if (name === 'tuiTaskList') {
+      if (isTaskListToolName(name)) {
         handleTaskListChunk(sessionId, args)
       }
     }

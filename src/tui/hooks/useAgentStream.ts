@@ -83,6 +83,8 @@ type ApprovalResume = (approved: boolean) => Promise<boolean>;
 const buildTaskContext = (tasks: TaskItem[]) => {
   if (tasks.length === 0) return undefined;
 
+  const completedTasks = tasks.filter((task) => task.done).length;
+  const allCompleted = completedTasks === tasks.length;
   const taskLines = tasks
     .map((task) => {
       const status = task.done ? 'completed' : task.current ? 'in_progress' : 'pending';
@@ -90,12 +92,20 @@ const buildTaskContext = (tasks: TaskItem[]) => {
     })
     .join('\n');
 
-  return `Current visible TUI checklist state:
+  if (allCompleted) {
+    return `Previous visible TUI checklist state (all completed):
 ${taskLines}
 
-Treat this checklist as authoritative when the user asks about task progress or completion.
+Treat this as historical context for the same session. Do not continue or re-open this checklist unless the user explicitly asks about it. For a new non-trivial request, create a fresh checklist with task_write.`;
+  }
+
+  return `Current visible TUI checklist state (unfinished):
+${taskLines}
+
+Treat this checklist as active and authoritative when the user asks about task progress or completion.
 Do not say all tasks are complete unless every visible checklist item is completed.
-If you actually start or complete one of these visible checklist items, call tuiTaskList action=update with the matching taskId before saying it is done.`;
+If the user is following up on this work, continue from the unfinished checklist and call task_write with the full updated list before claiming progress.
+If the user clearly changes to a new unrelated task, replace the checklist with task_write for the new task.`;
 };
 
 const pathArgKeys = ['path', 'filePath', 'filepath', 'file', 'targetPath', 'target', 'directory', 'dir', 'cwd', 'basePath'];
@@ -266,6 +276,8 @@ export function useAgentStream() {
     const getToolLabel = (toolName: string | undefined): string => {
       switch (toolName) {
         case 'tuiTaskList': return 'TASK';
+        case 'task_write': return 'TASK';
+        case 'task_check': return 'CHECK';
         case 'mastra_workspace_read_file': return 'READ';
         case 'readManyFiles': return 'READ';
         case 'mastra_workspace_write_file': return 'WRITE';
@@ -290,6 +302,16 @@ export function useAgentStream() {
       const pattern = getArgString(args, ['pattern', 'query', 'search']);
 
       switch (toolName) {
+        case 'task_write': {
+          const record = asArgsRecord(args);
+          const tasks = Array.isArray(record?.tasks) ? record.tasks : [];
+          return `updating checklist (${tasks.length} tasks)`;
+        }
+        case 'task_check': {
+          const record = asArgsRecord(args);
+          const tasks = Array.isArray(record?.tasks) ? record.tasks : [];
+          return `checking checklist completion (${tasks.length} tasks)`;
+        }
         case 'tuiTaskList': {
           const record = asArgsRecord(args);
           if (record?.action === 'set' && Array.isArray(record.tasks)) return `updating checklist (${record.tasks.length} tasks)`;
@@ -320,6 +342,22 @@ export function useAgentStream() {
       if (!args || !isTaskListToolName(payload.toolName)) return;
 
       hasStructuredTaskList = true;
+
+      if ((payload.toolName === 'task_write' || payload.toolName === 'task_check') && Array.isArray(args.tasks)) {
+        const nextTasks = args.tasks
+          .map((item, index) => {
+            const record = asArgsRecord(item);
+            if (!record) return undefined;
+            const text = typeof record.content === 'string' ? cleanTaskText(record.content) : '';
+            const st = typeof record.status === 'string' ? record.status : 'pending';
+            return { index: index + 1, text, done: st === 'completed', current: st === 'in_progress' };
+          })
+          .filter((item): item is TaskItem => Boolean(item && item.text));
+
+        setTasks(nextTasks);
+        currentTaskIndex = nextTasks.find((task) => task.current)?.index ?? null;
+        return;
+      }
 
       if (args.action === 'set' && Array.isArray(args.tasks)) {
         const nextTasks = args.tasks
