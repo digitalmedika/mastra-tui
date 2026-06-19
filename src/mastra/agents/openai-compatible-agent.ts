@@ -89,6 +89,9 @@ const instructions = `You are a vibe coding assistant: a collaborative software 
 - Returns the number of completed, in progress, and pending tasks.
 - If any tasks remain incomplete, continue working on them.
 - IMPORTANT: Always check task completion before ending work on a complex task.
+- If you created or updated a task list, do not send the final answer while any task is pending or in_progress.
+- After verification succeeds, call task_complete for the current task immediately, then call task_check.
+- Only give the final answer after task_check shows every visible task is completed.
 
 When responding:
 - When exactly one file needs to be read, use the built-in mastra_workspace_read_file tool

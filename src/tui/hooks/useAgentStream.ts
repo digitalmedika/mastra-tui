@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RequestContext } from '@mastra/core/request-context';
+import { TASK_STATE_TYPE } from '@mastra/core/tools';
+import { mastra } from '../../mastra';
 import { getCurrentModelId, openAICompatibleAgent, setModelIdAndRefresh } from '../../mastra/agents/openai-compatible-agent';
 import {
   allowExternalWorkspacePath,
@@ -79,6 +81,10 @@ const summarizeArgs = (args: unknown) => {
 const cleanTaskText = (text: string) => text.replace(/\*\*/g, '').replace(/`/g, '').replace(/\s+/g, ' ').trim();
 
 const taskRecordListFrom = (source: unknown): Record<string, unknown>[] | undefined => {
+  if (Array.isArray(source)) {
+    return source.map(asArgsRecord).filter((item): item is Record<string, unknown> => Boolean(item));
+  }
+
   const record = asArgsRecord(source);
 
   // Handle JSON-encoded string results from Mastra tools
@@ -157,6 +163,21 @@ const taskRecordsToItems = (taskRecords: Record<string, unknown>[]): TaskItem[] 
 
 const findTaskPatchArgs = (payload: ToolPayload, fallbackPayload?: ToolPayload) => {
   return asArgsRecord(payload.args) ?? asArgsRecord(fallbackPayload?.args);
+};
+
+const readStoredTaskItems = async (threadId: string): Promise<TaskItem[] | undefined> => {
+  const taskStore = await mastra.getStorage()?.getStore('threadState');
+  const storedTasks = await taskStore?.getState({ threadId, type: TASK_STATE_TYPE });
+  const taskRecords = taskRecordListFrom(storedTasks);
+  if (!taskRecords) return undefined;
+
+  const nextTasks = taskRecordsToItems(taskRecords);
+  return nextTasks.length > 0 ? nextTasks : undefined;
+};
+
+const deleteStoredTaskItems = async (threadId: string) => {
+  const taskStore = await mastra.getStorage()?.getStore('threadState');
+  await taskStore?.deleteState({ threadId, type: TASK_STATE_TYPE });
 };
 
 type ApprovalResume = (approved: boolean) => Promise<boolean>;
@@ -611,6 +632,18 @@ export function useAgentStream() {
       }],
     ]);
 
+    const reconcileStoredTasks = async () => {
+      try {
+        const nextTasks = await readStoredTaskItems(currentSession.id);
+        if (!nextTasks) return;
+        hasStructuredTaskList = true;
+        setTasks(nextTasks);
+        currentTaskIndex = nextTasks.find((task) => task.current)?.index ?? null;
+      } catch {
+        // Best-effort final sync; live stream events still drive the visible state.
+      }
+    };
+
     const shouldRequireToolApproval = ({ args }: { toolName?: string; args?: unknown }) => {
       const approvalPath = getToolPathForApproval(args);
       if (!approvalPath) return false;
@@ -1050,6 +1083,8 @@ export function useAgentStream() {
       updateRunningExploreEvents('done');
       activeExploreEventId = null;
       updateRunEvent(runEventId, 'done');
+      await reconcileStoredTasks();
+      if (cancelled) return;
 
       const backendUsage = await fetchLatestBackendTokenUsageSince(runStartedAt);
       const usageToDisplay =
@@ -1362,6 +1397,8 @@ export function useAgentStream() {
         updateRunningExploreEvents('done');
         activeExploreEventId = null;
         updateRunEvent(runEventId, 'done');
+        await reconcileStoredTasks();
+        if (cancelled) return;
 
         const backendUsage = await fetchLatestBackendTokenUsageSince(runStartedAt);
         const usageToDisplay =
@@ -1441,6 +1478,7 @@ export function useAgentStream() {
     try {
       const memory = await openAICompatibleAgent.getMemory();
       if (memory) await memory.deleteThread(currentSession.id);
+      await deleteStoredTaskItems(currentSession.id);
     } catch { /* silently ignore */ }
     setEvents([]);
     setTasks([]);
