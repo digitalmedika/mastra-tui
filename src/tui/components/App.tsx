@@ -1,4 +1,7 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { readFileSync, unlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { useKeyboard, usePaste, useTerminalDimensions } from '@opentui/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { clearSession, getStoredSession } from '../auth/storage';
@@ -19,6 +22,148 @@ import { PaymentOverlay, PAYMENT_AMOUNTS, type PaymentData, type PaymentPhase } 
 import pkg from '../../../package.json';
 import { TextareaRenderable } from '@opentui/core';
 import { SlashCommandSuggestion, filterSlashCommands, type SlashCommand } from './SlashCommandSuggestion';
+
+/**
+ * Detect image format from raw bytes using magic byte signatures.
+ * Returns the IANA media type (e.g. "image/png") or null if not a recognized image.
+ */
+const detectImageFormat = (bytes: Uint8Array): string | null => {
+  if (bytes.length < 4) return null;
+
+  // PNG: 89 50 4E 47
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    return 'image/png';
+  }
+
+  // JPEG: FF D8 FF
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'image/jpeg';
+  }
+
+  // GIF: 47 49 46 38 ("GIF8")
+  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) {
+    return 'image/gif';
+  }
+
+  // WebP: 52 49 46 46 ("RIFF") ... 57 45 42 50 ("WEBP") at offset 8
+  if (
+    bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+    bytes.length >= 12 &&
+    bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
+  ) {
+    return 'image/webp';
+  }
+
+  // BMP: 42 4D ("BM")
+  if (bytes[0] === 0x42 && bytes[1] === 0x4d) {
+    return 'image/bmp';
+  }
+
+  // HEIC / AVIF / ISOBMFF: ftyp box at offset 4
+  if (
+    bytes.length >= 12 &&
+    bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70
+  ) {
+    const brand = String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11]);
+    if (brand === 'heic' || brand === 'heix' || brand === 'hevc' || brand === 'hevx' ||
+        brand === 'mif1' || brand === 'msf1') {
+      return 'image/heic';
+    }
+    if (brand === 'avif' || brand === 'avis') {
+      return 'image/avif';
+    }
+  }
+
+  return null;
+};
+
+/**
+ * Read an image from the system clipboard using platform commands.
+ * Returns base64-encoded data, media type, and size, or null if no image found.
+ *
+ * This bypasses terminal bracketed-paste which only handles text.
+ * Use this for Cmd/Ctrl+Shift+V to attach images when regular paste fails.
+ */
+const readClipboardImage = (): { base64: string; mediaType: string; sizeBytes: number } | null => {
+  const platform = process.platform;
+  let rawBytes: Buffer | null = null;
+
+  try {
+    if (platform === 'darwin') {
+      // macOS: Use osascript to save clipboard image to a temp PNG file
+      const tmpPath = join(tmpdir(), `tui-clipboard-${Date.now()}.png`);
+      const script = `
+        try
+          set img to the clipboard as «class PNGf»
+          set f to POSIX file "${tmpPath}"
+          set fd to open for access f with write permission
+          set eof fd to 0
+          write img to fd
+          close access fd
+          return "ok"
+        on error errMsg
+          return "error: " & errMsg
+        end try
+      `.trim();
+      const result = spawnSync('osascript', ['-e', script], { timeout: 5000, encoding: 'utf-8' });
+      if (result.status === 0 && result.stdout?.trim() === 'ok') {
+        rawBytes = readFileSync(tmpPath);
+        try { unlinkSync(tmpPath); } catch { /* cleanup best-effort */ }
+      }
+    } else if (platform === 'linux') {
+      // Linux: Use xclip to get image data
+      const result = spawnSync('xclip', ['-selection', 'clipboard', '-t', 'image/png', '-o'], {
+        timeout: 5000,
+        encoding: 'buffer',
+      });
+      if (result.status === 0 && result.stdout && result.stdout.length > 0) {
+        rawBytes = result.stdout;
+      } else {
+        // Try wl-paste for Wayland
+        const wlResult = spawnSync('wl-paste', ['--type', 'image/png'], {
+          timeout: 5000,
+          encoding: 'buffer',
+        });
+        if (wlResult.status === 0 && wlResult.stdout && wlResult.stdout.length > 0) {
+          rawBytes = wlResult.stdout;
+        }
+      }
+    } else if (platform === 'win32') {
+      // Windows: Use PowerShell to save clipboard image to temp file
+      const tmpPath = join(tmpdir(), `tui-clipboard-${Date.now()}.png`);
+      const psScript = `
+        Add-Type -AssemblyName System.Windows.Forms
+        if ([System.Windows.Forms.Clipboard]::ContainsImage()) {
+          $img = [System.Windows.Forms.Clipboard]::GetImage()
+          $img.Save('${tmpPath.replace(/\\/g, '\\\\')}', [System.Drawing.Imaging.ImageFormat]::Png)
+          Write-Output 'ok'
+        } else {
+          Write-Output 'no-image'
+        }
+      `.trim();
+      const result = spawnSync('powershell', ['-NoProfile', '-Command', psScript], {
+        timeout: 10000,
+        encoding: 'utf-8',
+      });
+      if (result.status === 0 && result.stdout?.trim() === 'ok') {
+        rawBytes = readFileSync(tmpPath);
+        try { unlinkSync(tmpPath); } catch { /* cleanup best-effort */ }
+      }
+    }
+
+    if (!rawBytes || rawBytes.length === 0) return null;
+
+    const uint8 = new Uint8Array(rawBytes);
+    const mediaType = detectImageFormat(uint8);
+    if (!mediaType) return null;
+
+    const base64 = rawBytes.toString('base64');
+    return { base64, mediaType, sizeBytes: rawBytes.length };
+  } catch (err) {
+    console.error('[Clipboard] Failed to read image from system clipboard:', err);
+    return null;
+  }
+};
 
 const hasPositiveBalance = (value: string | null) => {
   const numeric = Number(value);
@@ -331,6 +476,27 @@ export function App({ onExit }: { onExit: () => void }) {
       return;
     }
 
+    // Cmd/Ctrl+Shift+V — paste image from system clipboard
+    const isPasteImageShortcut =
+      (process.platform === 'darwin' && key.super && key.shift && key.name === 'v') ||
+      (process.platform !== 'darwin' && key.ctrl && key.shift && key.name === 'v');
+    if (isPasteImageShortcut) {
+      key.preventDefault();
+      const visionSupported = activeModel?.supportsVision === true;
+      if (!visionSupported) return;
+      const result = readClipboardImage();
+      if (result) {
+        const attachment: ImageAttachment = {
+          id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          base64: result.base64,
+          mediaType: result.mediaType,
+          sizeBytes: result.sizeBytes,
+        };
+        setImageAttachments((prev) => [...prev, attachment]);
+      }
+      return;
+    }
+
     // Slash command suggestion keyboard navigation
     if (slashVisible) {
       if (key.name === 'up') {
@@ -424,10 +590,13 @@ export function App({ onExit }: { onExit: () => void }) {
     }
   });
 
-  // Detect image paste from clipboard
+  // Detect image paste from clipboard via magic byte inspection.
+  // StdinParser does not emit MIME metadata, so we identify images by their binary signature.
   usePaste((event) => {
-    const mimeType = event.metadata?.mimeType;
-    if (!mimeType || !mimeType.startsWith('image/')) return;
+    if (!event.bytes || event.bytes.length === 0) return;
+
+    const mediaType = detectImageFormat(event.bytes);
+    if (!mediaType) return; // Not an image — let textarea handle it as text
 
     const visionSupported = activeModel?.supportsVision === true;
     if (!visionSupported) {
@@ -435,17 +604,15 @@ export function App({ onExit }: { onExit: () => void }) {
       return;
     }
 
-    // Convert Uint8Array to base64 string
-    // Terminal paste for images typically sends base64-encoded data
-    const text = new TextDecoder().decode(event.bytes).trim();
-    // Validate that it looks like base64
-    const base64Regex = /^[A-Za-z0-9+/=]+$/;
-    const base64Data = base64Regex.test(text) ? text : Buffer.from(event.bytes).toString('base64');
+    // Prevent textarea from inserting raw binary data
+    event.preventDefault();
+
+    const base64Data = Buffer.from(event.bytes).toString('base64');
 
     const attachment: ImageAttachment = {
       id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       base64: base64Data,
-      mediaType: mimeType,
+      mediaType,
       sizeBytes: event.bytes.length,
     };
 
@@ -555,6 +722,29 @@ export function App({ onExit }: { onExit: () => void }) {
       const targetPath = trimmedValue.slice('/allow'.length).trim();
       clearInput();
       allowExternalPath(targetPath);
+      return;
+    }
+
+    if (trimmedValue.startsWith('/attach ') && canStartAction) {
+      const filePath = trimmedValue.slice('/attach'.length).trim();
+      clearInput();
+      try {
+        const rawBytes = readFileSync(filePath);
+        const uint8 = new Uint8Array(rawBytes);
+        const mediaType = detectImageFormat(uint8);
+        if (mediaType) {
+          const base64 = rawBytes.toString('base64');
+          const attachment: ImageAttachment = {
+            id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            base64,
+            mediaType,
+            sizeBytes: rawBytes.length,
+          };
+          setImageAttachments((prev) => [...prev, attachment]);
+        }
+      } catch {
+        // File not found or unreadable — silently ignore
+      }
       return;
     }
 

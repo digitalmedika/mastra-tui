@@ -17,6 +17,7 @@ export type SlashCommand = {
 export const SLASH_COMMANDS: SlashCommand[] = [
   { command: '/approve', insertText: '/approve', description: 'Approve pending tool call', requires: 'approval' },
   { command: '/deny', insertText: '/deny', description: 'Deny pending tool call', requires: 'approval' },
+  { command: '/attach <path>', insertText: '/attach ', description: 'Attach an image file', requires: 'idle' },
   { command: '/clear', insertText: '/clear', description: 'Clear chat memory', requires: 'idle' },
   { command: '/sessions', insertText: '/sessions', description: 'Open session picker', requires: 'idle' },
   { command: '/model', insertText: '/model', description: 'Open model picker', requires: 'idle' },
