@@ -1096,7 +1096,7 @@ export function App({ onExit }: { onExit: () => void }) {
           />
         ) : null}
         <box style={{ flexGrow: 1 }} />
-        <text content="▄▄▄" style={{ fg: '#FFFFFF', bg: '#CE1126' }} />
+        <text content="🇮🇩" style={{ fg: '#CE1126' }} />
       </box>
     </box>
   );
