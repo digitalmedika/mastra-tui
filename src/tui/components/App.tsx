@@ -1,11 +1,11 @@
 import { spawn } from 'node:child_process';
 import { useKeyboard, useTerminalDimensions } from '@opentui/react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { clearSession, getStoredSession } from '../auth/storage';
 import { createPaymentTopUp, fetchCreditsMe, fetchPaymentStatus, fetchSessionMe } from '../auth/device';
 import { useAgentStream } from '../hooks';
 import { assistantMarkerFg, greenFg, inputBorderFg, mutedFg, redFg, runBg, textFg } from '../constants';
-import { toSessionOption } from '../utils';
+import { formatTokenCount, toSessionOption } from '../utils';
 import { refreshAgent } from '../../mastra/agents/openai-compatible-agent';
 import { checkVersion, type VersionCheckResult } from '../version-check';
 import type { ApprovalEvent, StreamEvent } from '../types';
@@ -99,6 +99,47 @@ export function App({ onExit }: { onExit: () => void }) {
   const anyPickerOpen = sessionPickerOpen || modelPickerOpen || paymentOverlayOpen || approvalOverlayOpen;
   const activeModel = models.find((m) => m.publicModelId === selectedModelId);
   const modelDisplayName = activeModel ? activeModel.name : selectedModelId;
+
+  // Compute context token display from latest usage event or estimate from history
+  const contextDisplay = useMemo(() => {
+    const contextWindow = activeModel?.contextWindow;
+    if (!contextWindow) return null;
+
+    const barWidth = 10;
+
+    const buildDisplay = (used: number, total: number, remaining: number) => {
+      const ratio = total > 0 ? Math.min(1, Math.max(0, used / total)) : 0;
+      const filledCount = Math.round(ratio * barWidth);
+      const emptyCount = barWidth - filledCount;
+      const bar = `${'█'.repeat(filledCount)}${'░'.repeat(emptyCount)}`;
+      return { bar, remaining, ratio, used, total };
+    };
+
+    // Find the latest usage event to get accurate API-reported token count
+    const latestUsage = [...events].reverse().find((e): e is StreamEvent & { type: 'usage' } => e.type === 'usage');
+    const usedTokens = latestUsage?.usage?.inputTokens;
+
+    if (usedTokens !== undefined && usedTokens > 0) {
+      const remaining = Math.max(0, contextWindow - usedTokens);
+      return buildDisplay(usedTokens, contextWindow, remaining);
+    }
+
+    // No usage event yet — estimate from loaded history (text + assistant events)
+    const historyChars = events.reduce((sum, e) => {
+      if (e.type === 'text' || e.type === 'assistant') {
+        return sum + e.text.length;
+      }
+      return sum;
+    }, 0);
+
+    if (historyChars > 0) {
+      const estimated = Math.max(1, Math.round(historyChars / 4));
+      const remaining = Math.max(0, contextWindow - estimated);
+      return buildDisplay(estimated, contextWindow, remaining);
+    }
+
+    return buildDisplay(0, contextWindow, contextWindow);
+  }, [activeModel?.contextWindow, events]);
 
   // Slash command suggestion state
   const [slashVisible, setSlashVisible] = useState(false);
@@ -753,6 +794,17 @@ export function App({ onExit }: { onExit: () => void }) {
           content={`${modelDisplayName}`}
           style={{ fg: assistantMarkerFg }}
         />
+        {contextDisplay ? (
+          <text
+            content={`  ${contextDisplay.bar} ${formatTokenCount(contextDisplay.remaining)} ctx`}
+            style={{
+              fg:
+                contextDisplay.ratio > 0.8 ? redFg
+                : contextDisplay.ratio > 0.5 ? '#FFD700'
+                : greenFg,
+            }}
+          />
+        ) : null}
         {balance !== null ? (
           <text
             content={`  •  $${Number(balance).toFixed(2)}`}

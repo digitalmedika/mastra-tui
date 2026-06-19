@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Agent } from '@mastra/core/agent';
 import type { OpenAICompatibleConfig } from '@mastra/core/llm';
-import { TaskSignalProvider } from '@mastra/core/signals';
+import { WrappedTaskSignalProvider } from './wrapped-task-signal';
 import { LocalFilesystem, LocalSandbox, Workspace } from '@mastra/core/workspace';
 import { LibSQLStore } from '@mastra/libsql';
 import { Memory } from '@mastra/memory';
@@ -245,7 +245,7 @@ function createAgent(): Agent {
     instructions,
     model: buildModelConfig(),
     tools: { readManyFiles },
-    signals: [new TaskSignalProvider()],
+    signals: [new WrappedTaskSignalProvider()],
     workspace: vibeCodingWorkspace,
     memory: new Memory({
       storage: new LibSQLStore({

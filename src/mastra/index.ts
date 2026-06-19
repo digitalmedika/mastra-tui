@@ -1,4 +1,3 @@
-
 import fs from 'node:fs';
 import path from 'node:path';
 import { Mastra } from '@mastra/core/mastra';
@@ -8,6 +7,7 @@ import { DuckDBStore } from "@mastra/duckdb";
 import { MastraCompositeStore } from '@mastra/core/storage';
 import { Observability, MastraStorageExporter, MastraPlatformExporter, SensitiveDataFilter } from '@mastra/observability';
 import { openAICompatibleAgent } from './agents/openai-compatible-agent';
+import { setMastraRef } from './agents/wrapped-task-signal';
 import { readManyFiles } from './tools/read-many-files-tool';
 import { findProjectRoot } from '../workspace';
 
@@ -60,3 +60,5 @@ export const mastra = new Mastra({
     timeout: 600_000,
   },
 });
+
+setMastraRef(mastra);
