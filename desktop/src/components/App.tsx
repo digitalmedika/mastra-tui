@@ -31,7 +31,7 @@ export default function App() {
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null)
 
   const { workspaces, activeWorkspace, addWorkspace, removeWorkspace, setActiveWorkspace } = useWorkspaces()
-  const { sessions, currentSession, createSession, selectSession, deleteSession, allSessions } = useSessions(activeWorkspace?.id, mastraReady)
+  const { sessions, currentSession, createSession, selectSession, deleteSession, updateSessionTitle, allSessions } = useSessions(activeWorkspace?.id, mastraReady)
   const chat = useAgentChat(currentSession?.id, mastraReady)
   const modelDisplayName = getModelDisplayName(activeModelId, catalogModels)
 
@@ -286,7 +286,15 @@ export default function App() {
       return
     }
     chat.submitPrompt(prompt, session)
-  }, [chat.balance, chat.submitPrompt])
+
+    // Auto-rename default session based on first prompt
+    const title = session?.title
+    if (session && (title === 'Default Session' || !title)) {
+      const firstLine = prompt.trim().split('\n')[0].trim()
+      const newTitle = firstLine.length <= 50 ? firstLine : firstLine.slice(0, 47) + '...'
+      updateSessionTitle(session.id, newTitle)
+    }
+  }, [chat.balance, chat.submitPrompt, updateSessionTitle])
 
   // Global keydown handler for tool approvals
   useEffect(() => {

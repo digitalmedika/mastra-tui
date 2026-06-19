@@ -194,6 +194,42 @@ export function useSessions(workspaceId?: string, mastraReady?: boolean) {
     }
   }, [])
 
+  const updateSessionTitle = useCallback(
+    async (sessionId: string, newTitle: string) => {
+      // Update local state immediately for responsive UI
+      setAllSessions((prev) =>
+        prev.map((s) => (s.id === sessionId ? { ...s, title: newTitle } : s)),
+      )
+
+      if (!mastraReady) return
+
+      try {
+        const params = {
+          title: newTitle,
+          agentId: 'openAICompatibleAgent',
+        }
+        if (electron?.updateMemoryThread) {
+          await electron.updateMemoryThread(sessionId, params)
+        } else {
+          const memoryThread = getMastraClient().getMemoryThread({
+            threadId: sessionId,
+            agentId: 'openAICompatibleAgent',
+          })
+          const existing = await memoryThread.get()
+          await memoryThread.update({
+            title: newTitle,
+            metadata: existing.metadata ?? {},
+            resourceId: existing.resourceId ?? existing.metadata?.workspaceId ?? 'default-workspace',
+            agentId: 'openAICompatibleAgent',
+          })
+        }
+      } catch (err) {
+        console.error('[useSessions] Failed to update session title:', err)
+      }
+    },
+    [mastraReady],
+  )
+
   const deleteSession = useCallback(
     async (id: string) => {
       const targetSession = allSessionsRef.current.find((s) => s.id === id)
@@ -237,6 +273,7 @@ export function useSessions(workspaceId?: string, mastraReady?: boolean) {
     createSession,
     selectSession,
     deleteSession,
+    updateSessionTitle,
     allSessions,
     isLoading,
   }

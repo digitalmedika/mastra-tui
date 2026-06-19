@@ -446,16 +446,12 @@ export function useAgentStream() {
       setTasks((current) => {
         let changed = false;
 
-        // Check if tasks have any IDs at all (from proper task_write result parsing)
-        const tasksHaveIds = current.some((task) => task.id !== undefined);
-
         const next = current.map((task) => {
           const matches =
             task.id === id ||
             String(task.index) === id ||
-            // Fallback: when tasks don't have IDs (e.g., task_write result wasn't parsed),
-            // try matching by parsing the id as an index number
-            (!tasksHaveIds && String(task.index) === String(parseInt(id, 10)));
+            // Also try matching by index when the id parses as an integer
+            String(task.index) === String(parseInt(id, 10));
 
           if (!matches) {
             return toolName === 'task_update' && args?.status === 'in_progress' ? { ...task, current: false } : task;
@@ -472,8 +468,8 @@ export function useAgentStream() {
           };
         });
 
-        // If still no match and tasks have no IDs, try fallback heuristics
-        if (!changed && !tasksHaveIds && toolName === 'task_complete') {
+        // If still no match, try fallback heuristics (works even when tasks have mismatched IDs)
+        if (!changed && toolName === 'task_complete') {
           // Find the current in_progress task and complete it
           const inProgressIndex = current.findIndex((task) => task.current);
           if (inProgressIndex >= 0) {
@@ -496,7 +492,7 @@ export function useAgentStream() {
           }
         }
 
-        if (!changed && !tasksHaveIds && toolName === 'task_update' && args?.status === 'in_progress') {
+        if (!changed && toolName === 'task_update' && args?.status === 'in_progress') {
           // Find the first pending task and mark it in_progress
           const pendingIndex = current.findIndex((task) => !task.done && !task.current);
           if (pendingIndex >= 0) {

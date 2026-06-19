@@ -1,4 +1,6 @@
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { Mastra } from '@mastra/core/mastra';
 import { PinoLogger } from '@mastra/loggers';
 import { LibSQLStore } from '@mastra/libsql';
@@ -7,9 +9,14 @@ import { MastraCompositeStore } from '@mastra/core/storage';
 import { Observability, MastraStorageExporter, MastraPlatformExporter, SensitiveDataFilter } from '@mastra/observability';
 import { openAICompatibleAgent } from './agents/openai-compatible-agent';
 import { readManyFiles } from './tools/read-many-files-tool';
+import { findProjectRoot } from '../workspace';
 
+const projectRoot = findProjectRoot();
 const desktopMode = process.env.DESKTOP_MODE === 'true';
-const duckDBPath = process.env.MASTRA_DUCKDB_PATH?.trim() || (desktopMode ? ':memory:' : '.loccle/mastra.duckdb');
+const duckDBPath = process.env.MASTRA_DUCKDB_PATH?.trim() || (desktopMode ? ':memory:' : path.join(projectRoot, '.loccle', 'mastra.duckdb'));
+
+const defaultDbPath = path.join(projectRoot, '.loccle', 'loccle.db');
+fs.mkdirSync(path.dirname(defaultDbPath), { recursive: true });
 
 export const mastra = new Mastra({
   agents: { openAICompatibleAgent },
@@ -18,7 +25,7 @@ export const mastra = new Mastra({
     id: 'composite-storage',
     default: new LibSQLStore({
       id: "mastra-storage",
-      url: "file:./.loccle/loccle.db",
+      url: `file:${defaultDbPath.replace(/\\/g, '/')}`,
     }),
     domains: {
       observability: await new DuckDBStore({ path: duckDBPath }).getStore('observability'),

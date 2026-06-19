@@ -155,6 +155,17 @@ ipcMain.handle('memory:listThreadMessages', async (_event, threadId: string, opt
   return getMastraClient().listThreadMessages(threadId, opts)
 })
 
+ipcMain.handle('memory:updateThread', async (_event, threadId: string, params: { title: string; agentId: string }) => {
+  const memoryThread = getMastraClient().getMemoryThread({ threadId, agentId: params.agentId })
+  const existing = await memoryThread.get()
+  return memoryThread.update({
+    title: params.title,
+    metadata: existing.metadata ?? {},
+    resourceId: existing.resourceId ?? existing.metadata?.workspaceId ?? 'default-workspace',
+    agentId: params.agentId,
+  })
+})
+
 // IPC: Open external URL in default browser
 ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   if (!url || !/^https?:\/\//.test(url)) {
