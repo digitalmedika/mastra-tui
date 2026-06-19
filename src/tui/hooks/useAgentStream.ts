@@ -23,7 +23,7 @@ import {
   isShellTool,
   isTaskListToolName,
 } from '../event-factories';
-import type { ApprovalEvent, ExploreChildEvent, ExploreEvent, RunEvent, ShellEvent, StreamEvent, StreamRequest, StreamStatus, TaskItem, TokenUsage, ToolCardEvent, ToolPayload, TuiSession } from '../types';
+import type { ApprovalEvent, ExploreChildEvent, ExploreEvent, ImageAttachment, RunEvent, ShellEvent, StreamEvent, StreamRequest, StreamStatus, TaskItem, TokenUsage, ToolCardEvent, ToolPayload, TuiSession } from '../types';
 import { estimateTokens, getSessionTitle, getStringField, getToolErrorMessage, normalizeTokenUsage } from '../utils';
 
 const extractMemoryMessageText = (content: unknown) => {
@@ -1066,14 +1066,32 @@ export function useAgentStream() {
 
     // ----- main stream loop -----
 
+    const buildPromptMessage = (): string | { role: 'user'; content: Array<{ type: 'text'; text: string } | { type: 'image'; image: string; mediaType?: string }> } => {
+      if (!request.images || request.images.length === 0) return request.prompt;
+
+      return {
+        role: 'user',
+        content: [
+          { type: 'text', text: request.prompt },
+          ...request.images.map((img) => ({
+            type: 'image' as const,
+            image: img.base64,
+            mediaType: img.mediaType,
+          })),
+        ],
+      };
+    };
+
     const run = async () => {
       if (request.id > 0) appendLine('');
       const runStartedAt = Date.now();
-      const runEventId = appendRunEvent(request.prompt);
+      const imageHint = request.images?.length ? ` [${request.images.length} image${request.images.length > 1 ? 's' : ''}]` : '';
+      const runEventId = appendRunEvent(request.prompt + imageHint);
       const requestContext = createRequestContext();
 
       try {
-        const response = await openAICompatibleAgent.stream(request.prompt, {
+        const promptMessage = buildPromptMessage();
+        const response = await openAICompatibleAgent.stream(promptMessage, {
           maxSteps: agentMaxSteps,
           memory: { resource: tuiResourceId, thread: currentSession.id },
           ...(request.taskContext ? { system: request.taskContext } : {}),
@@ -1375,10 +1393,15 @@ export function useAgentStream() {
     };
   }, [currentSession.id, historyLoaded, refreshSessions, request]);
 
-  const submitPrompt = useCallback((nextPrompt: string) => {
+  const submitPrompt = useCallback((nextPrompt: string, images?: ImageAttachment[]) => {
     const trimmedPrompt = nextPrompt.trim();
     if (!trimmedPrompt || status === 'streaming' || status === 'awaiting-approval') return false;
-    setRequest((current) => ({ id: (current?.id ?? -1) + 1, prompt: trimmedPrompt, taskContext: buildTaskContext(tasks) }));
+    setRequest((current) => ({
+      id: (current?.id ?? -1) + 1,
+      prompt: trimmedPrompt,
+      taskContext: buildTaskContext(tasks),
+      images: images && images.length > 0 ? images : undefined,
+    }));
     return true;
   }, [status, tasks]);
 

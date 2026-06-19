@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { getAgent, getMastraUrl, getMastraClient } from '../lib/mastra-client'
 import { getActiveWorkspace } from '../lib/workspace-store'
-import type { Message, TaskItem, ToolEvent, StreamState, Session } from '../lib/types'
+import type { Message, TaskItem, ToolEvent, StreamState, Session, ImageAttachment } from '../lib/types'
 
 const electron = (window as any).electronAPI
 const workspacePathContextKey = 'mastra-tui.workspacePath'
@@ -160,9 +160,9 @@ function buildTaskContext(tasks: TaskItem[]): string | undefined {
     return `- ${t.index}. [${status}] ${t.text}`
   })
   if (allCompleted) {
-    return `Previous visible TUI checklist state (all completed):\n${lines.join('\n')}\n\nTreat this as historical context for the same session. Do not continue or re-open this checklist unless the user explicitly asks about it. For a new non-trivial request, create a fresh checklist with task_write.`
+    return `Previous visible desktop checklist state (all completed):\n${lines.join('\n')}\n\nTreat this as historical context for the same session. Do not continue or re-open this checklist unless the user explicitly asks about it. For a new non-trivial request, create a fresh checklist with task_write.`
   }
-  return `Current visible TUI checklist state (unfinished):\n${lines.join('\n')}\n\nTreat this checklist as active and authoritative. If the user is following up on this work, continue from the unfinished checklist and call task_update or task_complete before claiming progress. If the user clearly changes to a new unrelated task, replace the checklist with task_write for the new task.`
+  return `Current visible desktop checklist state (unfinished):\n${lines.join('\n')}\n\nTreat this checklist as active and authoritative when the user asks about task progress or completion.\nDo not say all tasks are complete unless every visible checklist item is completed.\nIf the user is following up on this work, continue from the unfinished checklist and call task_update or task_complete before claiming progress.\nIf the user clearly changes to a new unrelated task, replace the checklist with task_write for the new task.`
 }
 
 function nameToEventType(toolName: string): ToolEvent['type'] {
@@ -396,15 +396,12 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
     updateSessionChatState(sessionId, (prev) => {
       let changed = false
 
-      // Check if tasks have any IDs at all (from proper task_write result parsing)
-      const tasksHaveIds = prev.tasks.some((task) => task.id !== undefined)
-
       const tasks = prev.tasks.map((task) => {
         const matches =
           task.id === id ||
           String(task.index) === id ||
-          // Fallback: when tasks don't have IDs, try matching by parsing the id as an index number
-          (!tasksHaveIds && String(task.index) === String(parseInt(id, 10)))
+          // Also try matching by index when the id parses as an integer.
+          String(task.index) === String(parseInt(id, 10))
 
         if (!matches) {
           return toolName === 'task_update' && args?.status === 'in_progress' ? { ...task, current: false } : task
@@ -421,8 +418,9 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
         }
       })
 
-      // If still no match and tasks have no IDs, try fallback heuristics
-      if (!changed && !tasksHaveIds && toolName === 'task_complete') {
+      // If still no match, try fallback heuristics. This keeps progress moving
+      // when task tool IDs differ from the visible checklist IDs.
+      if (!changed && toolName === 'task_complete') {
         const inProgressIndex = prev.tasks.findIndex((task) => task.current)
         if (inProgressIndex >= 0) {
           const nextTasks = prev.tasks.map((task, i) =>
@@ -439,7 +437,7 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
         }
       }
 
-      if (!changed && !tasksHaveIds && toolName === 'task_update' && args?.status === 'in_progress') {
+      if (!changed && toolName === 'task_update' && args?.status === 'in_progress') {
         const pendingIndex = prev.tasks.findIndex((task) => !task.done && !task.current)
         if (pendingIndex >= 0) {
           const nextTasks = prev.tasks.map((task, i) =>
@@ -753,7 +751,7 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
     }
   }, [handleStreamChunk, updateSessionChatState, refreshBalance])
 
-  const submitPrompt = useCallback(async (prompt: string, session?: Session) => {
+  const submitPrompt = useCallback(async (prompt: string, session?: Session, images?: ImageAttachment[]) => {
     const targetSession = session || (currentSessionId ? { id: currentSessionId } : null)
     if (!prompt.trim() || !targetSession) return
     const sessionId = targetSession.id
@@ -784,12 +782,28 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
     const workspace = getActiveWorkspace()
     const taskContext = buildTaskContext(state.tasks)
 
+    // Build the prompt message — multimodal if images are attached
+    const hasImages = images && images.length > 0
+    const promptMessage: string | { role: 'user'; content: Array<{ type: 'text'; text: string } | { type: 'image'; image: string; mediaType?: string }> } = hasImages
+      ? {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt.trim() },
+            ...images!.map((img) => ({
+              type: 'image' as const,
+              image: img.base64,
+              mediaType: img.mediaType,
+            })),
+          ],
+        }
+      : prompt.trim()
+
     try {
       if (electron?.startAgentStream) {
         const result = await electron.startAgentStream({
           sessionId,
           assistantMsgId,
-          prompt: prompt.trim(),
+          prompt: promptMessage,
           workspaceId: session?.workspaceId || 'desktop-user',
           workspacePath: workspace?.path || '',
           allowedPaths: state.allowedPaths,
@@ -802,7 +816,7 @@ export function useAgentChat(currentSessionId?: string, mastraReady?: boolean) {
       }
 
       const agent = getAgent()
-      const streamResponse = await agent.stream(prompt.trim(), {
+      const streamResponse = await agent.stream(promptMessage, {
         maxSteps: agentMaxSteps,
         memory: {
           thread: sessionId,

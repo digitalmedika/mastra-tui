@@ -11,7 +11,7 @@ import StatusBar from './StatusBar'
 import AuthScreen from './AuthScreen'
 import PaymentDialog from './PaymentDialog'
 import ApprovalDialog from './ApprovalDialog'
-import type { Session } from '../lib/types'
+import type { Session, ImageAttachment } from '../lib/types'
 
 const electron = (window as any).electronAPI
 const AUTH_SERVER_URL = 'https://api.loccle.com'
@@ -34,6 +34,7 @@ export default function App() {
   const { sessions, currentSession, createSession, selectSession, deleteSession, updateSessionTitle, allSessions } = useSessions(activeWorkspace?.id, mastraReady)
   const chat = useAgentChat(currentSession?.id, mastraReady)
   const modelDisplayName = getModelDisplayName(activeModelId, catalogModels)
+  const supportsVision = catalogModels.find((m) => m.publicModelId === activeModelId)?.supportsVision ?? true
 
   // Check auth and verify session on mount
   useEffect(() => {
@@ -277,7 +278,7 @@ export default function App() {
   }, [paymentOverlayOpen, paymentData, pendingPrompt, chat.status, currentSession, chat.refreshBalance, chat.submitPrompt])
 
   // Intercept submitPrompt for balance checks
-  const handleSubmitPrompt = useCallback((prompt: string, session?: Session) => {
+  const handleSubmitPrompt = useCallback((prompt: string, session?: Session, images?: ImageAttachment[]) => {
     const balanceNum = Number(chat.balance)
     if (chat.balance !== null && Number.isFinite(balanceNum) && balanceNum <= 0) {
       setPendingPrompt(prompt)
@@ -285,7 +286,7 @@ export default function App() {
       setPaymentData(null)
       return
     }
-    chat.submitPrompt(prompt, session)
+    chat.submitPrompt(prompt, session, images)
 
     // Auto-rename default session based on first prompt
     const title = session?.title
@@ -361,6 +362,7 @@ export default function App() {
         mastraReady={mastraReady}
         mastraStarting={mastraStarting}
         mastraError={mastraError}
+        supportsVision={supportsVision}
       />
 
       <TaskListPanel tasks={chat.tasks} />

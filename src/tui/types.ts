@@ -136,10 +136,22 @@ export type StreamEvent = StreamTextEvent | StreamAssistantEvent | RunEvent | To
 
 export type StreamStatus = 'idle' | 'streaming' | 'awaiting-approval' | 'finished' | 'error';
 
+export type ImageAttachment = {
+  id: string;
+  /** Base64-encoded image data (without the data: URL prefix) */
+  base64: string;
+  /** IANA media type, e.g. "image/png" */
+  mediaType: string;
+  /** Size in bytes */
+  sizeBytes: number;
+};
+
 export type StreamRequest = {
   id: number;
   prompt: string;
   taskContext?: string;
+  /** Images attached to this request */
+  images?: ImageAttachment[];
 };
 
 export type TaskItem = {

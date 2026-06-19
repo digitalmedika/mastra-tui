@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { useKeyboard, useTerminalDimensions } from '@opentui/react';
+import { useKeyboard, usePaste, useTerminalDimensions } from '@opentui/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { clearSession, getStoredSession } from '../auth/storage';
 import { createPaymentTopUp, fetchCreditsMe, fetchPaymentStatus, fetchSessionMe } from '../auth/device';
@@ -8,7 +8,7 @@ import { assistantMarkerFg, greenFg, inputBorderFg, mutedFg, redFg, runBg, textF
 import { formatTokenCount, toSessionOption } from '../utils';
 import { refreshAgent } from '../../mastra/agents/openai-compatible-agent';
 import { checkVersion, type VersionCheckResult } from '../version-check';
-import type { ApprovalEvent, StreamEvent } from '../types';
+import type { ApprovalEvent, ImageAttachment, StreamEvent } from '../types';
 import { ApprovalOverlay } from './ApprovalOverlay';
 import { Badge } from './Badge';
 import { DeviceLogin } from './DeviceLogin';
@@ -72,6 +72,7 @@ export function App({ onExit }: { onExit: () => void }) {
   const [versionResult, setVersionResult] = useState<VersionCheckResult | null>(null);
   const [approvalSelectedIndex, setApprovalSelectedIndex] = useState(0);
   const [approvalSubmitting, setApprovalSubmitting] = useState(false);
+  const [imageAttachments, setImageAttachments] = useState<ImageAttachment[]>([]);
   const { width: terminalWidth } = useTerminalDimensions();
   const hasTasks = tasks.length > 0;
   const showSideTasks = hasTasks && terminalWidth >= 132;
@@ -382,6 +383,10 @@ export function App({ onExit }: { onExit: () => void }) {
     }
 
     if (key.name === 'escape') {
+      if (imageAttachments.length > 0 && !modelPickerOpen && !sessionPickerOpen) {
+        setImageAttachments([]);
+        return;
+      }
       if (modelPickerOpen) {
         closeModelPicker();
         return;
@@ -390,6 +395,12 @@ export function App({ onExit }: { onExit: () => void }) {
         closeSessionPicker();
         return;
       }
+      return;
+    }
+
+    // Backspace on empty input removes last attached image
+    if (key.name === 'backspace' && imageAttachments.length > 0 && !inputValue) {
+      setImageAttachments((prev) => prev.slice(0, -1));
       return;
     }
 
@@ -411,6 +422,34 @@ export function App({ onExit }: { onExit: () => void }) {
       }, 1500);
       return;
     }
+  });
+
+  // Detect image paste from clipboard
+  usePaste((event) => {
+    const mimeType = event.metadata?.mimeType;
+    if (!mimeType || !mimeType.startsWith('image/')) return;
+
+    const visionSupported = activeModel?.supportsVision === true;
+    if (!visionSupported) {
+      // Silently ignore — model doesn't support vision
+      return;
+    }
+
+    // Convert Uint8Array to base64 string
+    // Terminal paste for images typically sends base64-encoded data
+    const text = new TextDecoder().decode(event.bytes).trim();
+    // Validate that it looks like base64
+    const base64Regex = /^[A-Za-z0-9+/=]+$/;
+    const base64Data = base64Regex.test(text) ? text : Buffer.from(event.bytes).toString('base64');
+
+    const attachment: ImageAttachment = {
+      id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      base64: base64Data,
+      mediaType: mimeType,
+      sizeBytes: event.bytes.length,
+    };
+
+    setImageAttachments((prev) => [...prev, attachment]);
   });
 
   const resetPaymentOverlay = useCallback(() => {
@@ -489,6 +528,7 @@ export function App({ onExit }: { onExit: () => void }) {
 
     if (trimmedValue === '/clear' && canStartAction) {
       clearInput();
+      setImageAttachments([]);
       void clearMemory();
       return;
     }
@@ -522,6 +562,7 @@ export function App({ onExit }: { onExit: () => void }) {
       if (canStartAction) {
         const title = trimmedValue.slice('/new'.length).trim();
         clearInput();
+        setImageAttachments([]);
         void createSession(title || undefined);
       }
       return;
@@ -548,8 +589,9 @@ export function App({ onExit }: { onExit: () => void }) {
       }
     }
 
-    if (submitPrompt(value)) {
+    if (submitPrompt(value, imageAttachments.length > 0 ? imageAttachments : undefined)) {
       clearInput();
+      setImageAttachments([]);
     }
   };
 
@@ -684,6 +726,58 @@ export function App({ onExit }: { onExit: () => void }) {
         selectedIndex={slashSelectedIndex}
         visible={slashVisible}
       />
+      {imageAttachments.length > 0 ? (
+        <box
+          style={{
+            width: '100%',
+            minHeight: 1,
+            flexDirection: 'row',
+            flexShrink: 0,
+            paddingLeft: 3,
+            paddingRight: 1,
+          }}
+        >
+          <text
+            content={`📎 ${imageAttachments.length} image${imageAttachments.length > 1 ? 's' : ''} attached`}
+            style={{ fg: assistantMarkerFg }}
+          />
+          {imageAttachments.map((img) => {
+            const sizeStr = img.sizeBytes >= 1024 * 1024
+              ? `${(img.sizeBytes / (1024 * 1024)).toFixed(1)}MB`
+              : img.sizeBytes >= 1024
+                ? `${(img.sizeBytes / 1024).toFixed(1)}KB`
+                : `${img.sizeBytes}B`;
+            return (
+              <text
+                key={img.id}
+                content={`  ${img.mediaType} (${sizeStr})`}
+                style={{ fg: mutedFg }}
+              />
+            );
+          })}
+          <text
+            content="  [Backspace dg input kosong = hapus]"
+            style={{ fg: mutedFg }}
+          />
+        </box>
+      ) : null}
+      {!activeModel?.supportsVision && imageAttachments.length > 0 ? (
+        <box
+          style={{
+            width: '100%',
+            height: 1,
+            flexDirection: 'row',
+            flexShrink: 0,
+            paddingLeft: 3,
+            paddingRight: 1,
+          }}
+        >
+          <text
+            content="⚠️  Model ini tidak mendukung vision. Gambar akan diabaikan."
+            style={{ fg: '#FFD700' }}
+          />
+        </box>
+      ) : null}
       <box
         style={{
           width: '100%',

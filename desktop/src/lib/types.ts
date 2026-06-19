@@ -72,3 +72,13 @@ export interface StreamState {
 }
 
 export type StreamStatus = 'idle' | 'streaming' | 'awaiting-approval' | 'finished' | 'error'
+
+export interface ImageAttachment {
+  id: string
+  /** Base64-encoded image data (without the data: URL prefix) */
+  base64: string
+  /** IANA media type, e.g. "image/png" */
+  mediaType: string
+  /** Size in bytes */
+  sizeBytes: number
+}

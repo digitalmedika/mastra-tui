@@ -380,6 +380,70 @@ html, body, #root {
   color: var(--text-muted);
 }
 
+/* === Image Attachments === */
+.chatview-attachments {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 24px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  font-size: 12px;
+}
+
+.attachments-label {
+  color: var(--accent-purple-light);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.attachment-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.attachment-remove {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  margin-left: 2px;
+  border-radius: 50%;
+  transition: color 0.15s, background 0.15s;
+}
+
+.attachment-remove:hover {
+  color: var(--accent-red);
+  background: rgba(248, 113, 113, 0.15);
+}
+
+.attachment-hint {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-left: auto;
+}
+
+/* === Vision Warning === */
+.chatview-vision-warning {
+  padding: 6px 24px;
+  background: rgba(250, 204, 21, 0.08);
+  color: var(--accent-yellow);
+  font-size: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
 /* === Chat Input === */
 .chatview-input-area {
   padding: 12px 24px 16px;

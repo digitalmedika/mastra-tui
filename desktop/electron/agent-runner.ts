@@ -15,7 +15,7 @@ const pathArgKeys = ['path', 'filePath', 'filepath', 'file', 'targetPath', 'targ
 export interface StartAgentStreamPayload {
   sessionId: string
   assistantMsgId: string
-  prompt: string
+  prompt: string | { role: 'user'; content: Array<{ type: 'text'; text: string } | { type: 'image'; image: string; mediaType?: string }> }
   workspaceId?: string
   workspacePath: string
   allowedPaths?: string[]
